@@ -1,0 +1,168 @@
+# Olixops Permission Center 开发规范
+
+> 本文件是本仓库唯一的 Agent 开发规范入口，所有开发（包括 AI 生成代码）必须遵守。开发前完整阅读本文件与 [README.md](README.md)；涉及数据库时同时阅读 [design/database.md](design/database.md)。不再维护重复的 `AGENT.md`。
+
+## 1. 项目定位与工作范围
+
+- 本项目是独立的、多租户、多系统权限中心，工作目录为 `E:\goland\projects\olixops-permission-center`。Env Vault 和发布系统是接入方，不是本项目内部业务模块。
+- 参考 Env Vault 后端的通用 Go 规范：DDD、接口格式、分页、统一错误、JWT、公用日志、安全配置、表设计审批和验证流程。不得照搬其主密钥、Secret 加解密、本地登录实现或专用错误码。
+- README 描述当前实现，本文记录开发规则；规划、proto、目录占位或历史设计不等于功能已经实现。发现冲突必须核对代码、配置与测试并同步修正文档。
+- 修改前检查工作区状态并保留已有修改。API 变更必须检查受影响的前端、业务系统和 SDK；仅修改本仓库不能宣称所有接入方已经完成适配。
+- 本仓库当前只有 Go 后端。新建权限中心前端或客户端 SDK 时，应分别建立其开发规范，不能将本仓库视为已有前端项目。
+
+## 2. 多租户与授权边界
+
+- 租户表示公司或需要隔离的业务主体；组织隶属于租户；接入系统表示可被多个租户使用的业务应用。
+- 租户与系统通过“租户启用系统”的授权范围关联。系统不固定归属于某个组织；一个租户可以使用多个系统，一个系统也可以服务多个租户。
+- 资源必须具有确定的租户、系统和业务标识。角色分配必须具有明确范围，平台、租户、系统、项目管理员之间不得默认继承权限。
+- 用户 ID 必须来自可信身份源；接入系统使用独立的服务身份。不得仅凭客户端传入的 `tenantId`、`systemId` 或 `userId` 认定其拥有对应权限。
+- 授权、撤权本身必须经过权限检查；必须设计首个管理员初始化、跨租户拒绝和越权授权防护。
+- SpiceDB 是授权关系与权限计算引擎；业务后端负责执行允许或拒绝。前端隐藏按钮不能替代后端授权。
+- 权限查询失败、超时或缺少依赖时必须拒绝放行，并保留可区分的服务错误；不得把失败当成“允许”，也不得伪装成成功的权限计算。
+- 以上是一期设计边界，尚不代表租户、系统、角色和授权业务已经实现；表结构仍须按第 6 节审批。
+
+## 3. DDD 架构与依赖方向
+
+依赖方向为接口层 → 应用层 → 领域层；基础设施层实现领域层或应用层定义的端口，启动层负责装配。
+
+| 目录 | 职责与约束 |
+|---|---|
+| `cmd/server/`、根 `main.go` | 服务入口，复用同一个启动过程 |
+| `internal/bootstrap/` | 配置加载、依赖创建与关闭、服务生命周期 |
+| `internal/interfaces/http/` | Gin 路由、绑定、认证入口、HTTP DTO 和错误映射 |
+| `internal/interfaces/grpc/` | grpc-go 服务、拦截器、协议转换和状态映射 |
+| `internal/application/` | 用例编排、事务边界、授权与审计流程 |
+| `internal/domain/` | 实体、值对象、规则及端口，原则上只依赖标准库 |
+| `internal/infrastructure/` | PostgreSQL/GORM、Redis、SpiceDB 等外部适配器 |
+| `pkg/` | 配置、日志、分页、响应、请求用户上下文等共用基础能力 |
+| `api/proto/`、`api/gen/` | protobuf 契约及生成代码 |
+
+- Domain 不依赖 Gin、GORM、Redis、grpc-go 或 Authzed SDK；Application 不直接调用数据库或构造 SpiceDB protobuf 请求。
+- Handler 只做协议适配和调用 Application；禁止从 Handler 直接读写数据库或 SpiceDB。
+- HTTP 和 gRPC 共享用例，不能复制两套授权逻辑。持久化模型、完整用户上下文和上游 SDK 响应不得直接作为对外 DTO。
+- 新的业务上下文围绕身份对接、租户、系统接入、授权和审计演进，不预先复制 Env Vault 的密钥、文件夹、环境等业务模块。
+- 完整源码目录和当前能力见 README；目录结构更新时同步文档，不创建只有名称而没有用途的业务模块。
+
+## 4. HTTP 与客户端契约
+
+### 4.1 路径和方法
+
+- 接口前缀为 `/api/v1`；公开接口使用 `/api/v1/pub/...`，其余业务接口必须经过统一认证。
+- 公开性由明确的路由分组决定，禁止用任意路径包含 `pub` 来跳过认证。
+- 业务路径以核心资源开头，附属能力放在所属资源下，例如 `/api/v1/tenant/member/allocate`；多词路径段使用小驼峰。
+- 只允许 GET 和 POST：无参查询使用 GET，带参查询和变更使用 POST + JSON；分享链接允许 GET 参数。
+- 未知路由、方法不匹配、参数错误、认证失败和 panic 均返回统一响应，禁止框架默认纯文本错误页。
+
+### 4.2 响应和错误
+
+所有 HTTP 响应均使用 `pkg/response`，字段为小驼峰：
+
+```json
+{
+  "code": 0,
+  "msg": "",
+  "data": {}
+}
+```
+
+| code | 约定 |
+|---|---|
+| `0` | 成功 |
+| `-1` | HTTP 200 下的普通业务失败，提供可公开的具体原因 |
+| `1 ~ 1000` | 系统预留；HTTP 400/401/403/404/405/500 等失败使用实际 HTTP 状态码 |
+| `10000 以上` | 仅用于调用方必须区分的特殊业务分支，新增前确认 |
+
+- HTTP 失败保留真实状态，body 的 `code` 和 `msg` 对应 HTTP 状态码与标准状态文本。例如 HTTP 401 返回 `{"code":401,"msg":"Unauthorized","data":null}`。
+- 普通业务错误调用 `response.Error` 等公用方法；内部错误返回通用消息，禁止直接回传数据库、网络连接或第三方 SDK 的原始错误。
+- 新增特殊业务码必须在本文记录码位、场景和客户端处理方式。当前没有独立权限中心专用业务码，不引入 Env Vault 的 `-2` 主密钥码。
+- 后续前端使用统一请求实例、拦截器及错误类型。普通接口失败统一提示一次，页面捕获后只处理 loading、状态和输入保留，不重复弹错。
+- `silent` 只能用于明确由调用方展示的错误，不绕过认证失效处理；HTTP 401 统一清理凭证和跳转登录，502/503/504 不伪装成业务失败。
+- 后续前端所有请求应有局部 loading，写操作禁止重复提交，使用 `try/finally` 关闭 loading；当前仓库没有这些前端实现。
+
+### 4.3 分页
+
+- 标准入参是 `pageNum/pageSize`，响应只有 `total/list`；空列表必须为 `[]`，不返回 `null`，不回显分页入参。
+- HTTP DTO 必须匿名嵌入 `page.Request`，禁止重复声明分页 JSON 字段；绑定后仅在 Handler 调用一次 `req.Normalize()`。
+- `pageNum <= 0` 取 1，`pageSize <= 0` 取 20，`pageSize > 200` 取 200。
+- Application、Domain、Repository 只接收已归一化参数，不再次设置默认值或上限；特殊例外必须说明原因。
+- Domain 内部 Filter 可以保存页码和条数，但不得依赖带 HTTP/JSON 语义的 DTO。
+- 响应使用 `page.Response[T]`。授权后的列表和 `total` 必须使用同一授权范围，禁止分页后过滤导致总数或页内数据泄露。
+- 分页测试覆盖缺省、非正数、超上限、空列表，以及 Application 实际收到的归一化参数。
+
+### 4.4 接口文档
+
+- HTTP Handler 维护 swag 注解，生成文档输出 `docs/` 且不提交；独立 OpenAPI 文档随契约维护，对外分发路径见 README。
+- proto 放 `api/proto/<context>/v1/`，生成代码放 `api/gen/`，禁止手工修改生成代码；生成方式见 [api/proto/README.md](api/proto/README.md)。
+- 路由、Handler、DTO、proto、接口文档和受影响客户端必须保持一致；同步外部接口平台须有用户要求，不套用其他仓库的目录或凭证。
+
+## 5. 认证、gRPC 与 SpiceDB
+
+### 5.1 身份认证
+
+- HTTP 使用 `Authorization: Bearer <token>`；JWT 统一 RS256，必须校验签名、`exp`、`iss` 和 `aud`，禁止算法降级。
+- 公钥通过 `auth.jwt-public-key` 或 `AUTH_JWT_PUBLIC_KEY` 注入，支持 PEM 和 base64 DER；旧 `auth.jwt_public_key` 仅作已有配置兼容。
+- issuer/audience 是可信身份源配置，不能从请求中动态放宽。缺少有效认证配置时，受保护接口不得放行。
+- `staffuserid`（缺省回退 `sub`）映射请求用户 ID，`name` 映射显示名；只有确认其稳定性和唯一性后才能作为业务主体标识。
+- `pkg/userctx.User` 只用于请求内部。JWT 和 Cookie 不得序列化输出；`/api/v1/auth/me` 仅返回用户 ID 与名称。
+- 本项目目前验证外部 JWT，不提供用户名密码登录、用户目录管理或 JWT 签发。后续增加认证来源须先设计，不能声称已继承 Env Vault 登录实现。
+
+### 5.2 gRPC
+
+- 使用官方 `google.golang.org/grpc` 与 `google.golang.org/protobuf`，错误使用 `status`/`codes`，不套用 HTTP JSON 外壳。
+- Unary 和 Stream 入口必须统一处理 trace-id、认证、日志、panic 恢复及错误映射；健康检查可以明确列为公开方法。
+- 新增业务 RPC 前必须实现调用方认证与授权范围校验。当前标准 health 与 `Healthy` 是公开连通性接口，不能当作业务鉴权已完成的证据。
+- 禁止把 SpiceDB 的原始关系写入或 schema 管理 API 无边界地透传给调用方。
+
+### 5.3 SpiceDB 适配
+
+- 使用官方 Go SDK `github.com/authzed/authzed-go`。SpiceDB 是独立服务，Go 项目使用客户端连接，不嵌入服务端或直接操作其数据库。
+- SDK 仅出现在基础设施适配层。启动层创建并复用连接，进程退出时关闭；每次调用必须传播 context、取消和有限超时。
+- 配置启用后执行有界启动健康检查。启动健康检查只验证服务可达与健康，不能证明访问密钥有效、模型存在或授权规则正确。
+- 默认关闭 SpiceDB 连接；启用但配置无效或服务不可用时启动失败。禁止启动时自动 `WriteSchema`、导入测试关系或覆盖用户已有模型。
+- Schema 作为受版本控制的规则代码，通过测试和受控发布变更；后台日常操作增删授权关系。SDK 初始化不等于完成授权业务。
+- 服务密钥只保留在后端配置中；生产使用 TLS 和可信 CA，明文仅通过显式 `insecure` 开关用于受控开发环境。
+- 租户和系统的对象命名、模型归属、撤权后一致性、批量查询范围、失败重试和审计必须在具体授权用例开发前明确。
+- PostgreSQL 业务写入与 SpiceDB 关系写入不属于同一数据库事务；需要可靠同步时先设计 outbox/重试等方案，并遵守表设计审批。
+- 不自行增加权限允许结果缓存；设计缓存时必须明确有效期、撤权失效和一致性保证。
+
+## 6. 数据库与 Redis
+
+- 权限中心业务持久化使用 PostgreSQL + GORM，缓存使用 `github.com/redis/go-redis/v9`。SpiceDB 自身数据库与本项目业务数据库职责独立。
+- 所有业务表设计先写入 `design/database.md`，使用 SQL 代码块并附索引说明；**Owner 确认后才能编写相关 model、repository、migration、handler 或自动建表代码**。
+- 未审批前允许完善连接和配置基础设施；禁止借“初始化项目”创建业务表或调用 `AutoMigrate`。
+- 禁止外键；关系与业务校验在代码中维护。除主键、NOT NULL、默认值、必要 UNIQUE 和索引外，不增加 CHECK、触发器等数据库业务校验。
+- 避免 PostgreSQL 保留字，信息类表以 `_info` 结尾；具体表名与字段以审批后的设计为准。
+- 所有可变业务表包含 `create_at/create_by/update_at/update_by/delete_at/delete_by/is_deleted`；`is_deleted` 为 boolean，默认 false。
+- 可变表统一软删除，查询默认过滤已删除数据，禁止物理删除；只追加历史表仅保留 `create_at/create_by`，不提供修改和删除能力。
+- PostgreSQL 角色、授权及默认权限语句维护于数据库文档；SpiceDB 内部表与迁移由其服务或 Operator 管理，禁止通过 GORM 建表或人工修改内部表。
+- 数据库和 Redis 未配置时可跳过初始化以运行健康检查；依赖持久化或缓存的具体用例必须显式处理依赖缺失。
+
+## 7. 命名、日志与敏感数据
+
+- Go 导出类型和字段使用大驼峰，如 `UserName`；JSON 字段使用小驼峰，如 `userName`；数据库列使用下划线，如 `user_name`。
+- 人员名称字段使用对应标识加 `Name` 后缀，例如 `createBy/createByName`；其余遵循 Go 官方命名习惯。
+- 全局日志只能经 `pkg/logger`（zap 封装）输出，禁止 `fmt.Println`、`log.Println` 或 zap 全局 Logger；GORM 等库日志也要接入公用日志或明确禁用。
+- 开发环境使用可读控制台与彩色级别，生产 `production/release` 使用 JSON 且 Info 及以上；时间格式为 `2006-01-02T15:04:05.000-07:00`。
+- HTTP `x-request-id` 有则透传、无则生成，并回写响应；gRPC 使用同名 metadata。日志有 trace-id 时附加，没有时不输出空字段。
+- 请求日志使用 `logger.Info(ctx, "msg", zap.Xxx(...))` 等包装，无 context 时使用 `logger.L()`；不得将凭据或整份请求/配置对象作为日志字段。
+- JWT、Cookie、SpiceDB token、数据库/Redis 密码和含凭据 DSN 禁止写入日志、错误响应、URL、文档、测试快照或提交记录。
+- 测试仅用虚构凭据；不读取或复制其他项目真实密钥、主密钥分片、MCP token 或用户私人凭据。
+
+## 8. 配置、部署与依赖
+
+- 保留 `go.mod` 指定的 Go 1.26，具体依赖版本以 `go.mod/go.sum` 为准。新增依赖说明用途并同步锁定结果，不提交 vendor。
+- 受版本控制的配置模板为 `config/config.example.yaml`；本地 `config/config.yaml` 被忽略，保留用户已有内容，不在初始化中覆盖。
+- 配置优先级为环境变量 > 文件 > 默认值；`CONFIG_FILE` 可以选择挂载文件。密码和访问密钥通过环境变量或 Kubernetes Secret 挂载配置注入，模板只包含空值/占位。
+- 新配置需同步示例、README 和测试；显式指定文件不存在、解析或类型校验失败必须安全返回错误，不能输出整段含秘密的配置文本。
+- 默认 HTTP `:8080`、gRPC `:9090`；SpiceDB 默认禁用。实际启用状态与错误行为必须在 README 说明。
+- 根目录维护多阶段 Dockerfile，构建独立 Go 二进制，运行镜像不需要 Go；镜像只能包含安全模板，不能复制用户本地配置或凭据。
+- 最终部署到 Kubernetes，敏感值通过 Secret 注入。修改本地代码和配置不代表获准安装/升级集群、导入 Schema 或写入线上授权关系。
+
+## 9. 验证与交付
+
+- 改动前读规范与工作区状态；Go 修改仅格式化涉及的文件，执行 `go vet ./...`、`go test ./...` 和相关构建。
+- 行为测试重点覆盖认证、跨租户边界、分页、错误封装、取消/超时和资源关闭；第三方集成用虚构凭据和本地测试服务，不依赖个人集群。
+- 单元测试通过不等于真实 SpiceDB 集成验证。交付必须区分编译、测试、本地模拟和真实服务验证，不把未运行写成通过。
+- 修改纯 Markdown 时检查链接和 `git diff --check`；YAML/OpenAPI 还要检查语法和契约，无需为纯文档修改运行所有业务测试。
+- 修改接口、配置、proto 或开发约定时同步对应文档；涉及受影响客户端时核对其契约，未完成的适配如实列明。
+- 交付说明包含修改仓库、行为变化、实际检查结果和仍未实现的功能。当前实现清单以 README 为准。

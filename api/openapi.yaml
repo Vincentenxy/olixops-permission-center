@@ -1,0 +1,118 @@
+openapi: 3.0.3
+info:
+  title: OlixOps Permission Center
+  version: 0.1.0
+  description: 独立权限中心初始化接口。授权业务接口尚未实现。
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/v1/pub/healthz:
+    get:
+      summary: 服务存活检查
+      description: 仅检查进程存活，不代表业务授权能力或外部依赖持续就绪。
+      operationId: health
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, msg, data]
+                properties:
+                  code:
+                    type: integer
+                    enum: [0]
+                  msg:
+                    type: string
+                    example: ''
+                  data:
+                    type: object
+                    required: [status, time]
+                    additionalProperties: false
+                    properties:
+                      status:
+                        type: string
+                        enum: [ok]
+                      time:
+                        type: string
+                        format: date-time
+              example:
+                code: 0
+                msg: ''
+                data:
+                  status: ok
+                  time: '2026-01-01T00:00:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/auth/me:
+    get:
+      summary: 获取当前用户的公开信息
+      operationId: currentUser
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, msg, data]
+                properties:
+                  code:
+                    type: integer
+                    enum: [0]
+                  msg:
+                    type: string
+                  data:
+                    type: object
+                    required: [userId, name]
+                    additionalProperties: false
+                    properties:
+                      userId:
+                        type: string
+                      name:
+                        type: string
+              example:
+                code: 0
+                msg: ''
+                data:
+                  userId: example-user
+                  name: Example User
+        '401':
+          description: JWT 缺失、无效、过期或不符合 issuer/audience/RS256 要求
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example: {code: 401, msg: Unauthorized, data: null}
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: RS256 公钥验签，要求 exp、issuer、audience 和用户标识。
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [code, msg, data]
+      properties:
+        code:
+          type: integer
+        msg:
+          type: string
+        data:
+          nullable: true
+          example: null
+  responses:
+    InternalError:
+      description: Internal Server Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example: {code: 500, msg: Internal Server Error, data: null}

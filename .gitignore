@@ -1,0 +1,12 @@
+/bin/
+/docs/
+*.log
+.env
+.env.*
+!.env.example
+config/config.yaml
+.idea/
+.vscode/
+*.pem
+*.key
+vendor/

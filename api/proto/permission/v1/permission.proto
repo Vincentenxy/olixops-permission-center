@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package permission.v1;
+
+option go_package = "olixops-permission-center/api/gen/permission/v1;permissionv1";
+
+service PermissionCenterService {
+  rpc CheckPermission(CheckPermissionRequest) returns (CheckPermissionResponse);
+}
+
+message CheckPermissionRequest {
+  string user_id = 1;
+  string resource = 2;
+  string action = 3;
+}
+
+message CheckPermissionResponse {
+  bool allowed = 1;
+}

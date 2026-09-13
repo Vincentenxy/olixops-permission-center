@@ -1,0 +1,12 @@
+.git
+.idea
+.vscode
+.env
+.env.*
+config/config.yaml
+**/*.pem
+**/*.key
+bin
+docs
+vendor
+*.log

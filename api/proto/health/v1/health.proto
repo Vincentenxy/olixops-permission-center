@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package health.v1;
+
+option go_package = "olixops-permission-center/api/gen/health/v1;healthv1";
+
+service HealthService {
+  rpc Healthy(HealthyRequest) returns (HealthyResponse);
+}
+
+message HealthyRequest {}
+
+message HealthyResponse {
+  bool healthy = 1;
+  string message = 2;
+}
