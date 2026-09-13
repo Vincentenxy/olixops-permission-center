@@ -1,118 +1,2088 @@
-openapi: 3.0.3
+openapi: "3.0.3"
 info:
-  title: OlixOps Permission Center
-  version: 0.1.0
-  description: 独立权限中心初始化接口。授权业务接口尚未实现。
+  title: "Olixops Permission Center"
+  version: "0.2.0"
+  description: "一期后台：本地登录、租户/管理员/系统管理、固定系统 Token、审计。管理成功写入与审计同事务。SpiceDB 业务授权接口不在本版本范围。严格 JSON，未知字段及尾随 JSON 拒绝，body上限64KiB。"
 servers:
-  - url: http://localhost:8080
+  - url: "http://localhost:8080"
 paths:
-  /api/v1/pub/healthz:
+  "/api/v1/pub/healthz":
     get:
-      summary: 服务存活检查
-      description: 仅检查进程存活，不代表业务授权能力或外部依赖持续就绪。
-      operationId: health
+      summary: "进程连通性；不代表数据库或授权业务就绪"
+      operationId: "health"
+      security: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
       responses:
-        '200':
-          description: OK
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
           content:
-            application/json:
+            "application/json":
               schema:
-                type: object
-                required: [code, msg, data]
-                properties:
-                  code:
-                    type: integer
-                    enum: [0]
-                  msg:
-                    type: string
-                    example: ''
-                  data:
-                    type: object
-                    required: [status, time]
+                oneOf:
+                  - type: "object"
                     additionalProperties: false
+                    required: ["code","msg","data"]
                     properties:
-                      status:
-                        type: string
-                        enum: [ok]
-                      time:
-                        type: string
-                        format: date-time
-              example:
-                code: 0
-                msg: ''
-                data:
-                  status: ok
-                  time: '2026-01-01T00:00:00Z'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/v1/auth/me:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/Health"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/pub/auth/login":
+    post:
+      summary: "管理员本地账号密码登录"
+      operationId: "login"
+      security: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/LoginResult"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "429":
+          "$ref": "#/components/responses/HTTP429"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+      description: "每客户端初始10次，随后每6秒恢复一次；仅对显式配置的 trusted_proxies/HTTP_TRUSTED_PROXIES 信任转发IP，默认使用TCP对端。错误凭据和停用用户统一401；配置/数据库不可用503。生产入口另配共享限流。"
+  "/api/v1/auth/me":
     get:
-      summary: 获取当前用户的公开信息
-      operationId: currentUser
+      summary: "当前有效后台用户；每次核对本地用户状态"
+      operationId: "currentUser"
       security:
-        - bearerAuth: []
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
       responses:
-        '200':
-          description: OK
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
           content:
-            application/json:
+            "application/json":
               schema:
-                type: object
-                required: [code, msg, data]
-                properties:
-                  code:
-                    type: integer
-                    enum: [0]
-                  msg:
-                    type: string
-                  data:
-                    type: object
-                    required: [userId, name]
+                oneOf:
+                  - type: "object"
                     additionalProperties: false
+                    required: ["code","msg","data"]
                     properties:
-                      userId:
-                        type: string
-                      name:
-                        type: string
-              example:
-                code: 0
-                msg: ''
-                data:
-                  userId: example-user
-                  name: Example User
-        '401':
-          description: JWT 缺失、无效、过期或不符合 issuer/audience/RS256 要求
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/UserProfile"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/systemAccess/me":
+    get:
+      summary: "由固定系统 Token 推导可信租户/系统/账号范围"
+      operationId: "currentSystem"
+      security:
+        - SystemToken: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
           content:
-            application/json:
+            "application/json":
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example: {code: 401, msg: Unauthorized, data: null}
-        '500':
-          $ref: '#/components/responses/InternalError'
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/SystemIdentity"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/user/list":
+    post:
+      summary: "超管查询后台用户"
+      operationId: "user_list"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/ListRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/UserPage"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/user/detail":
+    post:
+      summary: "超管查看后台用户"
+      operationId: "user_detail"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/IDRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/User"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/user/create":
+    post:
+      summary: "超管创建普通后台用户"
+      operationId: "user_create"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/CreateUserRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/User"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/user/update":
+    post:
+      summary: "超管编辑用户展示资料"
+      operationId: "user_update"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/UpdateRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/User"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/user/setStatus":
+    post:
+      summary: "超管停用或恢复用户；保护最后有效超管"
+      operationId: "user_setStatus"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/StatusRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/User"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/user/setPlatformRole":
+    post:
+      summary: "超管修改平台角色；保护最后有效超管"
+      operationId: "user_setPlatformRole"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/RoleRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/User"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/tenant/list":
+    post:
+      summary: "按当前管理员范围查询租户"
+      operationId: "tenant_list"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/ListRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/TenantPage"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/tenant/detail":
+    post:
+      summary: "查看可管理租户"
+      operationId: "tenant_detail"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/IDRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/Tenant"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/tenant/create":
+    post:
+      summary: "超管创建租户"
+      operationId: "tenant_create"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/CreateTenantRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/Tenant"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/tenant/update":
+    post:
+      summary: "超管编辑租户"
+      operationId: "tenant_update"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/UpdateRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/Tenant"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/tenant/setStatus":
+    post:
+      summary: "超管停用或恢复租户"
+      operationId: "tenant_setStatus"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/StatusRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/Tenant"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/tenant/member/list":
+    post:
+      summary: "查看租户管理员；tenantId必填"
+      operationId: "tenant_member_list"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              allOf:
+                - "$ref": "#/components/schemas/ListRequest"
+                - type: "object"
+                  required: ["tenantId"]
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/MemberPage"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/tenant/member/allocate":
+    post:
+      summary: "超管分配租户管理员；有效关联幂等返回"
+      operationId: "tenant_member_allocate"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/MemberRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/Member"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/tenant/member/setStatus":
+    post:
+      summary: "超管停用或恢复租户管理员关联"
+      operationId: "tenant_member_setStatus"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/StatusRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/Member"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/system/list":
+    post:
+      summary: "查询可管理的系统"
+      operationId: "system_list"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/ListRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/SystemPage"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/system/detail":
+    post:
+      summary: "系统与唯一账号概览"
+      operationId: "system_detail"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/IDRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/SystemDetail"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/system/create":
+    post:
+      summary: "在有效租户内创建系统及唯一账号，不自动发 Token"
+      operationId: "system_create"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/CreateSystemRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/SystemDetail"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/system/update":
+    post:
+      summary: "编辑可管理系统"
+      operationId: "system_update"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/UpdateRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/System"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/system/setStatus":
+    post:
+      summary: "停用或恢复可管理系统"
+      operationId: "system_setStatus"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/StatusRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/System"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/system/account/setStatus":
+    post:
+      summary: "停用或恢复系统账号"
+      operationId: "system_account_setStatus"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/StatusRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/Account"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/system/credential/list":
+    post:
+      summary: "查看 Token 元数据；systemId必填，不返回摘要或明文"
+      operationId: "system_credential_list"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              allOf:
+                - "$ref": "#/components/schemas/ListRequest"
+                - type: "object"
+                  required: ["systemId"]
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/CredentialPage"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/system/credential/create":
+    post:
+      summary: "仅所属租户的有效管理员签发固定系统 Token"
+      operationId: "system_credential_create"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/CredentialRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/IssuedCredential"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+      description: "平台超管身份本身不提供签发资格，必须另有此租户有效 tenant_admin 关联。租户/系统/账号均须有效；同账号最多一把有效 Token。无自动到期、无轮换接口。返回明文只在成功事务提交后出现一次，不可查回。"
+  "/api/v1/system/credential/revoke":
+    post:
+      summary: "吊销系统 Token；吊销不可恢复"
+      operationId: "system_credential_revoke"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/VersionRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/Credential"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/audit/list":
+    post:
+      summary: "按管理员范围查询审计"
+      operationId: "audit_list"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/ListRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/AuditPage"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/audit/detail":
+    post:
+      summary: "查看可见审计详情"
+      operationId: "audit_detail"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/IDRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/Audit"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
 components:
   securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: RS256 公钥验签，要求 exp、issuer、audience 和用户标识。
+    BearerAuth:
+      type: "http"
+      scheme: "bearer"
+      bearerFormat: "JWT"
+      description: "本地RS256 JWT，验证exp/iss/aud，sub为内部UUID，另核对用户状态。"
+    SystemToken:
+      type: "http"
+      scheme: "bearer"
+      bearerFormat: "opc_<keyId>.<secret>"
+      description: "独立系统 Token 入口，不能调用管理员API；不接受管理员JWT作为系统身份。"
+  parameters:
+    RequestID:
+      name: "x-request-id"
+      in: "header"
+      required: false
+      schema:
+        type: "string"
+        maxLength: 128
+      description: "1–128可见ASCII字节原样透传；不合法或缺失由服务端生成；响应头回写。"
   schemas:
     ErrorResponse:
-      type: object
-      required: [code, msg, data]
+      type: "object"
+      additionalProperties: false
+      required: ["code","msg","data"]
       properties:
         code:
-          type: integer
+          type: "integer"
         msg:
-          type: string
+          type: "string"
         data:
           nullable: true
           example: null
+    BusinessError:
+      type: "object"
+      additionalProperties: false
+      required: ["code","msg","data"]
+      properties:
+        code:
+          type: "integer"
+          enum: [-1]
+        msg:
+          type: "string"
+        data:
+          nullable: true
+          example: null
+    UserProfile:
+      type: "object"
+      additionalProperties: false
+      required: ["userId","username","name","platformRole"]
+      properties:
+        userId:
+          type: "string"
+          format: "uuid"
+        username:
+          type: "string"
+          maxLength: 64
+        name:
+          type: "string"
+          maxLength: 128
+        platformRole:
+          type: "string"
+          enum: ["none","platform_admin"]
+    LoginRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["username","password"]
+      properties:
+        username:
+          type: "string"
+          maxLength: 64
+          minLength: 1
+        password:
+          type: "string"
+          maxLength: 72
+          minLength: 1
+          format: "password"
+          writeOnly: true
+    LoginResult:
+      type: "object"
+      additionalProperties: false
+      required: ["accessToken","expiresAt","user"]
+      properties:
+        accessToken:
+          type: "string"
+        expiresAt:
+          type: "string"
+          format: "date-time"
+        user:
+          "$ref": "#/components/schemas/UserProfile"
+    User:
+      type: "object"
+      additionalProperties: false
+      required: ["id","version","createAt","updateAt","username","name","platformRole","status","remark"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        version:
+          type: "integer"
+          format: "int64"
+          minimum: 1
+        createAt:
+          type: "string"
+          format: "date-time"
+        updateAt:
+          type: "string"
+          format: "date-time"
+        username:
+          type: "string"
+          maxLength: 64
+        name:
+          type: "string"
+          maxLength: 128
+        platformRole:
+          type: "string"
+          enum: ["none","platform_admin"]
+        status:
+          type: "string"
+          enum: ["active","disabled"]
+        remark:
+          type: "string"
+          maxLength: 2000
+    Tenant:
+      type: "object"
+      additionalProperties: false
+      required: ["id","version","createAt","updateAt","code","name","remark","status"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        version:
+          type: "integer"
+          format: "int64"
+          minimum: 1
+        createAt:
+          type: "string"
+          format: "date-time"
+        updateAt:
+          type: "string"
+          format: "date-time"
+        code:
+          type: "string"
+          maxLength: 64
+        name:
+          type: "string"
+          maxLength: 128
+        remark:
+          type: "string"
+          maxLength: 2000
+        status:
+          type: "string"
+          enum: ["active","disabled"]
+    System:
+      type: "object"
+      additionalProperties: false
+      required: ["id","version","createAt","updateAt","tenantId","code","name","remark","status"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        version:
+          type: "integer"
+          format: "int64"
+          minimum: 1
+        createAt:
+          type: "string"
+          format: "date-time"
+        updateAt:
+          type: "string"
+          format: "date-time"
+        tenantId:
+          type: "string"
+          format: "uuid"
+        code:
+          type: "string"
+          maxLength: 64
+        name:
+          type: "string"
+          maxLength: 128
+        remark:
+          type: "string"
+          maxLength: 2000
+        status:
+          type: "string"
+          enum: ["active","disabled"]
+    Account:
+      type: "object"
+      additionalProperties: false
+      required: ["id","version","createAt","updateAt","systemId","name","status"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        version:
+          type: "integer"
+          format: "int64"
+          minimum: 1
+        createAt:
+          type: "string"
+          format: "date-time"
+        updateAt:
+          type: "string"
+          format: "date-time"
+        systemId:
+          type: "string"
+          format: "uuid"
+        name:
+          type: "string"
+          maxLength: 128
+        status:
+          type: "string"
+          enum: ["active","disabled"]
+    SystemDetail:
+      type: "object"
+      additionalProperties: false
+      required: ["system","account"]
+      properties:
+        system:
+          "$ref": "#/components/schemas/System"
+        account:
+          "$ref": "#/components/schemas/Account"
+    Member:
+      type: "object"
+      additionalProperties: false
+      required: ["id","version","createAt","updateAt","tenantId","userId","username","name","memberRole","status"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        version:
+          type: "integer"
+          format: "int64"
+          minimum: 1
+        createAt:
+          type: "string"
+          format: "date-time"
+        updateAt:
+          type: "string"
+          format: "date-time"
+        tenantId:
+          type: "string"
+          format: "uuid"
+        userId:
+          type: "string"
+          format: "uuid"
+        username:
+          type: "string"
+          maxLength: 64
+        name:
+          type: "string"
+          maxLength: 128
+        memberRole:
+          type: "string"
+          enum: ["tenant_admin"]
+        status:
+          type: "string"
+          enum: ["active","disabled"]
+    Credential:
+      type: "object"
+      additionalProperties: false
+      required: ["id","version","createAt","updateAt","accountId","keyId","name","status","revokedAt"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        version:
+          type: "integer"
+          format: "int64"
+          minimum: 1
+        createAt:
+          type: "string"
+          format: "date-time"
+        updateAt:
+          type: "string"
+          format: "date-time"
+        accountId:
+          type: "string"
+          format: "uuid"
+        keyId:
+          type: "string"
+          maxLength: 32
+        name:
+          type: "string"
+          maxLength: 128
+        status:
+          type: "string"
+          enum: ["active","revoked"]
+        revokedAt:
+          type: "string"
+          format: "date-time"
+          nullable: true
+    IssuedCredential:
+      type: "object"
+      additionalProperties: false
+      required: ["credential","token"]
+      properties:
+        credential:
+          "$ref": "#/components/schemas/Credential"
+        token:
+          type: "string"
+          description: "仅创建成功时展示一次；固定 Token，不自动过期。"
+    SystemIdentity:
+      type: "object"
+      additionalProperties: false
+      required: ["tenantId","systemId","accountId","keyId"]
+      properties:
+        tenantId:
+          type: "string"
+          format: "uuid"
+        systemId:
+          type: "string"
+          format: "uuid"
+        accountId:
+          type: "string"
+          format: "uuid"
+        keyId:
+          type: "string"
+          maxLength: 32
+    Audit:
+      type: "object"
+      additionalProperties: false
+      required: ["id","actorType","actorId","actorName","tenantId","tenantName","systemId","systemName","accountId","keyId","targetType","targetId","targetName","action","result","reasonCode","requestId","changes","createAt"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        actorType:
+          type: "string"
+          enum: ["user","system_account","bootstrap","anonymous"]
+        actorId:
+          type: "string"
+          format: "uuid"
+          nullable: true
+        actorName:
+          type: "string"
+          maxLength: 128
+        tenantId:
+          type: "string"
+          format: "uuid"
+          nullable: true
+        tenantName:
+          type: "string"
+          maxLength: 128
+        systemId:
+          type: "string"
+          format: "uuid"
+          nullable: true
+        systemName:
+          type: "string"
+          maxLength: 128
+        accountId:
+          type: "string"
+          format: "uuid"
+          nullable: true
+        keyId:
+          type: "string"
+          maxLength: 32
+        targetType:
+          type: "string"
+          maxLength: 64
+        targetId:
+          type: "string"
+          format: "uuid"
+          nullable: true
+        targetName:
+          type: "string"
+          maxLength: 128
+        action:
+          type: "string"
+          maxLength: 64
+        result:
+          type: "string"
+          enum: ["success","denied","failed"]
+        reasonCode:
+          type: "string"
+          maxLength: 64
+        requestId:
+          type: "string"
+          maxLength: 128
+        changes:
+          type: "object"
+          additionalProperties: true
+        createAt:
+          type: "string"
+          format: "date-time"
+    IDRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["id"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+    VersionRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["id","version"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        version:
+          type: "integer"
+          format: "int64"
+          minimum: 1
+    CreateTenantRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["code","name"]
+      properties:
+        code:
+          type: "string"
+          maxLength: 64
+        name:
+          type: "string"
+          maxLength: 128
+        remark:
+          type: "string"
+          maxLength: 2000
+    CreateSystemRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["tenantId","code","name"]
+      properties:
+        tenantId:
+          type: "string"
+          format: "uuid"
+        code:
+          type: "string"
+          maxLength: 64
+        name:
+          type: "string"
+          maxLength: 128
+        remark:
+          type: "string"
+          maxLength: 2000
+    UpdateRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["id","version","name"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        version:
+          type: "integer"
+          format: "int64"
+          minimum: 1
+        name:
+          type: "string"
+          maxLength: 128
+        remark:
+          type: "string"
+          maxLength: 2000
+    StatusRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["id","version","status"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        version:
+          type: "integer"
+          format: "int64"
+          minimum: 1
+        status:
+          type: "string"
+          enum: ["active","disabled"]
+    RoleRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["id","version","platformRole"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        version:
+          type: "integer"
+          format: "int64"
+          minimum: 1
+        platformRole:
+          type: "string"
+          enum: ["none","platform_admin"]
+    CreateUserRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["username","password","name"]
+      properties:
+        username:
+          type: "string"
+          maxLength: 64
+          minLength: 3
+          pattern: "^[a-zA-Z0-9][a-zA-Z0-9_.@-]{2,63}$"
+        password:
+          type: "string"
+          maxLength: 72
+          minLength: 12
+          format: "password"
+          writeOnly: true
+          description: "12–72 UTF-8 bytes, preserved without trimming."
+        name:
+          type: "string"
+          maxLength: 128
+        remark:
+          type: "string"
+          maxLength: 2000
+    MemberRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["tenantId","userId"]
+      properties:
+        tenantId:
+          type: "string"
+          format: "uuid"
+        userId:
+          type: "string"
+          format: "uuid"
+    CredentialRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["accountId","name"]
+      properties:
+        accountId:
+          type: "string"
+          format: "uuid"
+        name:
+          type: "string"
+          maxLength: 128
+    ListRequest:
+      type: "object"
+      additionalProperties: false
+      required: []
+      properties:
+        pageNum:
+          type: "integer"
+          default: 1
+          description: "非正数按1处理"
+        pageSize:
+          type: "integer"
+          default: 20
+          description: "非正数按20处理，大于200归一化为200"
+        code:
+          type: "string"
+          maxLength: 64
+        name:
+          type: "string"
+          maxLength: 128
+        status:
+          type: "string"
+          enum: ["active","disabled","revoked"]
+        platformRole:
+          type: "string"
+          enum: ["none","platform_admin"]
+        tenantId:
+          type: "string"
+          format: "uuid"
+        systemId:
+          type: "string"
+          format: "uuid"
+        actorId:
+          type: "string"
+          format: "uuid"
+        action:
+          type: "string"
+          maxLength: 64
+        result:
+          type: "string"
+          enum: ["success","denied","failed"]
+        requestId:
+          type: "string"
+          maxLength: 128
+        from:
+          type: "string"
+          format: "date-time"
+        to:
+          type: "string"
+          format: "date-time"
+    UserPage:
+      type: "object"
+      additionalProperties: false
+      required: ["total","list"]
+      properties:
+        total:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        list:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/User"
+          description: "空列表始终为[]"
+    TenantPage:
+      type: "object"
+      additionalProperties: false
+      required: ["total","list"]
+      properties:
+        total:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        list:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/Tenant"
+          description: "空列表始终为[]"
+    SystemPage:
+      type: "object"
+      additionalProperties: false
+      required: ["total","list"]
+      properties:
+        total:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        list:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/System"
+          description: "空列表始终为[]"
+    MemberPage:
+      type: "object"
+      additionalProperties: false
+      required: ["total","list"]
+      properties:
+        total:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        list:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/Member"
+          description: "空列表始终为[]"
+    CredentialPage:
+      type: "object"
+      additionalProperties: false
+      required: ["total","list"]
+      properties:
+        total:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        list:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/Credential"
+          description: "空列表始终为[]"
+    AuditPage:
+      type: "object"
+      additionalProperties: false
+      required: ["total","list"]
+      properties:
+        total:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        list:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/Audit"
+          description: "空列表始终为[]"
+    Health:
+      type: "object"
+      additionalProperties: false
+      required: ["status","time"]
+      properties:
+        status:
+          type: "string"
+          enum: ["ok"]
+        time:
+          type: "string"
+          format: "date-time"
   responses:
-    InternalError:
-      description: Internal Server Error
-      content:
-        application/json:
+    HTTP400:
+      description: "Bad Request"
+      headers:
+        x-request-id:
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example: {code: 500, msg: Internal Server Error, data: null}
+            type: "string"
+            maxLength: 128
+      content:
+        "application/json":
+          schema:
+            "$ref": "#/components/schemas/ErrorResponse"
+          example:
+            code: 400
+            msg: "Bad Request"
+            data: null
+    HTTP401:
+      description: "Unauthorized"
+      headers:
+        x-request-id:
+          schema:
+            type: "string"
+            maxLength: 128
+      content:
+        "application/json":
+          schema:
+            "$ref": "#/components/schemas/ErrorResponse"
+          example:
+            code: 401
+            msg: "Unauthorized"
+            data: null
+    HTTP403:
+      description: "Forbidden"
+      headers:
+        x-request-id:
+          schema:
+            type: "string"
+            maxLength: 128
+      content:
+        "application/json":
+          schema:
+            "$ref": "#/components/schemas/ErrorResponse"
+          example:
+            code: 403
+            msg: "Forbidden"
+            data: null
+    HTTP404:
+      description: "Not Found"
+      headers:
+        x-request-id:
+          schema:
+            type: "string"
+            maxLength: 128
+      content:
+        "application/json":
+          schema:
+            "$ref": "#/components/schemas/ErrorResponse"
+          example:
+            code: 404
+            msg: "Not Found"
+            data: null
+    HTTP409:
+      description: "Conflict"
+      headers:
+        x-request-id:
+          schema:
+            type: "string"
+            maxLength: 128
+      content:
+        "application/json":
+          schema:
+            "$ref": "#/components/schemas/ErrorResponse"
+          example:
+            code: 409
+            msg: "Conflict"
+            data: null
+    HTTP429:
+      description: "Too Many Requests"
+      headers:
+        x-request-id:
+          schema:
+            type: "string"
+            maxLength: 128
+        Retry-After:
+          schema:
+            type: "string"
+            example: "6"
+      content:
+        "application/json":
+          schema:
+            "$ref": "#/components/schemas/ErrorResponse"
+          example:
+            code: 429
+            msg: "Too Many Requests"
+            data: null
+    HTTP503:
+      description: "Service Unavailable"
+      headers:
+        x-request-id:
+          schema:
+            type: "string"
+            maxLength: 128
+      content:
+        "application/json":
+          schema:
+            "$ref": "#/components/schemas/ErrorResponse"
+          example:
+            code: 503
+            msg: "Service Unavailable"
+            data: null

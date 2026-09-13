@@ -16,21 +16,24 @@ import (
 
 // Config contains process-level settings. Never log the complete configuration.
 type Config struct {
-	AppEnv           string
-	HTTPAddr         string
-	GRPCAddr         string
-	HTTPReadTimeout  time.Duration
-	HTTPWriteTimeout time.Duration
-	HTTPIdleTimeout  time.Duration
-	ShutdownTimeout  time.Duration
-	DatabaseDSN      string `json:"-"`
-	RedisAddr        string
-	RedisPassword    string `json:"-"`
-	RedisDB          int
-	AuthJWTPublicKey string
-	AuthJWTIssuer    string
-	AuthJWTAudience  string
-	SpiceDB          SpiceDB
+	AppEnv             string
+	HTTPAddr           string
+	GRPCAddr           string
+	HTTPReadTimeout    time.Duration
+	HTTPWriteTimeout   time.Duration
+	HTTPIdleTimeout    time.Duration
+	HTTPTrustedProxies []string
+	ShutdownTimeout    time.Duration
+	DatabaseDSN        string `json:"-"`
+	RedisAddr          string
+	RedisPassword      string `json:"-"`
+	RedisDB            int
+	AuthJWTPublicKey   string
+	AuthJWTPrivateKey  string `json:"-"`
+	AuthJWTIssuer      string
+	AuthJWTAudience    string
+	AuthJWTTokenTTL    time.Duration
+	SpiceDB            SpiceDB
 }
 
 type SpiceDB struct {
@@ -70,11 +73,12 @@ type fileConfig struct {
 	App    struct{ Environment string } `yaml:"app"`
 	Server struct {
 		HTTP struct {
-			Host         string
-			Port         scalarInt
-			ReadTimeout  string `yaml:"read_timeout"`
-			WriteTimeout string `yaml:"write_timeout"`
-			IdleTimeout  string `yaml:"idle_timeout"`
+			Host           string
+			Port           scalarInt
+			ReadTimeout    string   `yaml:"read_timeout"`
+			WriteTimeout   string   `yaml:"write_timeout"`
+			IdleTimeout    string   `yaml:"idle_timeout"`
+			TrustedProxies []string `yaml:"trusted_proxies"`
 		} `yaml:"http"`
 		GRPC struct {
 			Host string
@@ -84,9 +88,11 @@ type fileConfig struct {
 	} `yaml:"server"`
 	Auth struct {
 		PublicKey       string `yaml:"jwt-public-key"`
+		PrivateKey      string `yaml:"jwt-private-key"`
 		LegacyPublicKey string `yaml:"jwt_public_key"`
 		Issuer          string `yaml:"issuer"`
 		Audience        string `yaml:"audience"`
+		TokenTTL        string `yaml:"token-ttl"`
 	} `yaml:"auth"`
 	Database struct {
 		Host     string
@@ -119,7 +125,8 @@ func Load() (Config, error) {
 		AppEnv: "development", HTTPAddr: ":8080", GRPCAddr: ":9090",
 		HTTPReadTimeout: 10 * time.Second, HTTPWriteTimeout: 30 * time.Second,
 		HTTPIdleTimeout: 60 * time.Second, ShutdownTimeout: 5 * time.Second,
-		SpiceDB: SpiceDB{Timeout: 5 * time.Second},
+		AuthJWTTokenTTL: 8 * time.Hour,
+		SpiceDB:         SpiceDB{Timeout: 5 * time.Second},
 	}
 	path, explicit := os.LookupEnv("CONFIG_FILE")
 	if !explicit || path == "" {
@@ -139,10 +146,27 @@ func Load() (Config, error) {
 		cfg.GRPCAddr = listenAddr(source.Server.GRPC.Host, int(source.Server.GRPC.Port))
 	}
 	cfg.AuthJWTPublicKey = source.Auth.PublicKey
+	cfg.HTTPTrustedProxies = append([]string(nil), source.Server.HTTP.TrustedProxies...)
+	if raw, exists := os.LookupEnv("HTTP_TRUSTED_PROXIES"); exists {
+		cfg.HTTPTrustedProxies = nil
+		if strings.TrimSpace(raw) != "" {
+			cfg.HTTPTrustedProxies = strings.Split(raw, ",")
+		}
+	}
+	for i, value := range cfg.HTTPTrustedProxies {
+		value = strings.TrimSpace(value)
+		if net.ParseIP(value) == nil {
+			if _, _, err := net.ParseCIDR(value); err != nil {
+				return Config{}, errors.New("HTTP_TRUSTED_PROXIES must contain IP addresses or CIDR ranges")
+			}
+		}
+		cfg.HTTPTrustedProxies[i] = value
+	}
 	if cfg.AuthJWTPublicKey == "" {
 		cfg.AuthJWTPublicKey = source.Auth.LegacyPublicKey
 	}
 	cfg.AuthJWTIssuer, cfg.AuthJWTAudience = source.Auth.Issuer, source.Auth.Audience
+	cfg.AuthJWTPrivateKey = source.Auth.PrivateKey
 	if source.Database.Host != "" && source.Database.Name != "" {
 		port := int(source.Database.Port)
 		if port == 0 {
@@ -176,7 +200,8 @@ func Load() (Config, error) {
 		"APP_ENV": &cfg.AppEnv, "HTTP_ADDR": &cfg.HTTPAddr, "GRPC_ADDR": &cfg.GRPCAddr,
 		"DATABASE_DSN": &cfg.DatabaseDSN, "REDIS_ADDR": &cfg.RedisAddr, "REDIS_PASSWORD": &cfg.RedisPassword,
 		"AUTH_JWT_PUBLIC_KEY": &cfg.AuthJWTPublicKey, "AUTH_JWT_ISSUER": &cfg.AuthJWTIssuer, "AUTH_JWT_AUDIENCE": &cfg.AuthJWTAudience,
-		"SPICEDB_ENDPOINT": &cfg.SpiceDB.Endpoint, "SPICEDB_TOKEN": &cfg.SpiceDB.Token,
+		"AUTH_JWT_PRIVATE_KEY": &cfg.AuthJWTPrivateKey,
+		"SPICEDB_ENDPOINT":     &cfg.SpiceDB.Endpoint, "SPICEDB_TOKEN": &cfg.SpiceDB.Token,
 		"SPICEDB_CA_FILE": &cfg.SpiceDB.CAFile, "SPICEDB_SERVER_NAME": &cfg.SpiceDB.ServerName,
 	} {
 		if value, exists := os.LookupEnv(key); exists {
@@ -209,6 +234,7 @@ func Load() (Config, error) {
 		{"HTTP_WRITE_TIMEOUT", source.Server.HTTP.WriteTimeout, &cfg.HTTPWriteTimeout},
 		{"HTTP_IDLE_TIMEOUT", source.Server.HTTP.IdleTimeout, &cfg.HTTPIdleTimeout},
 		{"SHUTDOWN_TIMEOUT", source.Server.ShutdownTimeout, &cfg.ShutdownTimeout},
+		{"AUTH_JWT_TOKEN_TTL", source.Auth.TokenTTL, &cfg.AuthJWTTokenTTL},
 		{"SPICEDB_TIMEOUT", source.SpiceDB.Timeout, &cfg.SpiceDB.Timeout},
 	} {
 		value := duration.file
@@ -223,6 +249,9 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("%s must be a positive duration", duration.key)
 		}
 		*duration.target = parsed
+	}
+	if cfg.AuthJWTTokenTTL < time.Second || cfg.AuthJWTTokenTTL > 24*time.Hour {
+		return Config{}, errors.New("AUTH_JWT_TOKEN_TTL must be between 1s and 24h")
 	}
 	return cfg, nil
 }

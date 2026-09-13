@@ -2,8 +2,6 @@ package grpcinterface
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"time"
 
@@ -14,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 	"olixops-permission-center/pkg/auth"
 	"olixops-permission-center/pkg/logger"
+	"olixops-permission-center/pkg/requestid"
 	"olixops-permission-center/pkg/userctx"
 )
 
@@ -103,18 +102,11 @@ func sanitizeError(err error) error {
 }
 
 func traceID(ctx context.Context) string {
-	value, _ := ctx.Value(logger.TraceIDKey).(string)
-	return value
+	return requestid.FromContext(ctx)
 }
 
 func withRequestID(ctx context.Context) context.Context {
-	if requestID := incomingRequestID(ctx); requestID != "" {
-		return context.WithValue(ctx, logger.TraceIDKey, requestID)
-	}
-	buf := make([]byte, 16)
-	if _, err := rand.Read(buf); err == nil {
-		return context.WithValue(ctx, logger.TraceIDKey, hex.EncodeToString(buf))
-	}
+	ctx, _ = requestid.Ensure(ctx, incomingRequestID(ctx))
 	return ctx
 }
 

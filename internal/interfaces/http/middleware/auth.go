@@ -13,11 +13,11 @@ import (
 
 // Auth guards every route in its group, regardless of the requested URL text.
 func Auth(cfg config.Config) gin.HandlerFunc {
-	verifier, configErr := auth.NewVerifier(cfg.AuthJWTPublicKey, cfg.AuthJWTIssuer, cfg.AuthJWTAudience)
+	verifier, configErr := auth.NewLocalVerifier(cfg.AuthJWTPublicKey, cfg.AuthJWTIssuer, cfg.AuthJWTAudience)
 	return func(c *gin.Context) {
 		if configErr != nil {
 			logger.Error(c.Request.Context(), "authentication configuration is unavailable")
-			response.HTTPError(c, http.StatusInternalServerError)
+			response.HTTPError(c, http.StatusServiceUnavailable)
 			return
 		}
 		user, err := verifier.Authenticate(c.GetHeader("Authorization"), c.GetHeader("Cookie"))

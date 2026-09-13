@@ -9,14 +9,20 @@ server:
     read_timeout: 10s
     write_timeout: 30s
     idle_timeout: 60s
+    # Trust only the actual ingress/reverse-proxy peer ranges. Empty ignores XFF.
+    trusted_proxies: []
   grpc:
     host: 0.0.0.0
     port: 9090
   shutdown_timeout: 5s
 auth:
   jwt-public-key: "${AUTH_JWT_PUBLIC_KEY}"
-  issuer: "${AUTH_JWT_ISSUER}"
-  audience: "${AUTH_JWT_AUDIENCE}"
+  # Load a persistent RSA private key from an environment variable or Secret.
+  # Never commit private keys or generate a replacement on each service startup.
+  jwt-private-key: "${AUTH_JWT_PRIVATE_KEY}"
+  issuer: "${AUTH_JWT_ISSUER:-olixops-permission-center}"
+  audience: "${AUTH_JWT_AUDIENCE:-olixops-permission-center-web}"
+  token-ttl: 8h
 # Empty host keeps the permission center's own database disabled for bootstrap.
 # This is NOT the SpiceDB datastore configuration.
 database:

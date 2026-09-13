@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"time"
 
+	management "olixops-permission-center/internal/application/management"
 	"olixops-permission-center/internal/infrastructure/cache"
 	"olixops-permission-center/internal/infrastructure/persistence"
 	"olixops-permission-center/internal/infrastructure/spicedb"
 	grpcinterface "olixops-permission-center/internal/interfaces/grpc"
 	httpinterface "olixops-permission-center/internal/interfaces/http"
+	"olixops-permission-center/pkg/auth"
 	"olixops-permission-center/pkg/config"
 	"olixops-permission-center/pkg/logger"
 )
@@ -62,8 +64,16 @@ func Run(ctx context.Context) error {
 		logger.Info(ctx, "spicedb connection initialized")
 	}
 
+	var signer management.TokenSigner
+	if cfg.AuthJWTPrivateKey != "" {
+		signer, err = auth.NewSigner(cfg.AuthJWTPrivateKey, cfg.AuthJWTPublicKey, cfg.AuthJWTIssuer, cfg.AuthJWTAudience, cfg.AuthJWTTokenTTL)
+		if err != nil {
+			return errors.New("local authentication signing configuration is invalid")
+		}
+	}
+	managementService := management.New(persistence.NewManagementStore(database), signer, cfg.AuthJWTIssuer)
 	httpServer := &http.Server{
-		Addr: cfg.HTTPAddr, Handler: httpinterface.NewRouter(cfg),
+		Addr: cfg.HTTPAddr, Handler: httpinterface.NewRouter(cfg, managementService),
 		ReadHeaderTimeout: cfg.HTTPReadTimeout, ReadTimeout: cfg.HTTPReadTimeout,
 		WriteTimeout: cfg.HTTPWriteTimeout, IdleTimeout: cfg.HTTPIdleTimeout,
 	}

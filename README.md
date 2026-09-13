@@ -1,214 +1,204 @@
 # Olixops Permission Center
 
-独立的多租户、多系统权限中心 Go 后端。以 SpiceDB 保存授权关系和计算权限，向 Env Vault、发布系统等业务应用提供统一能力。开发前先阅读 [AGENTS.md](AGENTS.md)，数据库相关工作遵守 [表设计与初始化说明](design/database.md)。
+独立的多租户、多系统权限中心 Go 后端。第一部分管理租户、后台管理员、系统调用身份和审计；第二部分使用 SpiceDB 保存业务授权关系并计算权限。
 
-## 当前实现
+开发前阅读 [AGENTS.md](AGENTS.md)。数据库唯一 SQL 在 [design/database.md](design/database.md)，接口说明在 [design/management-api.md](design/management-api.md)，进度见 [第一部分计划](design/phase-one-plan.md)。
 
-项目已有初始化骨架，本次在原有项目上补齐 SpiceDB 客户端和通用规范，没有重新创建 Go 模块或升级 `go 1.26` 指令。
+## 当前能力
 
-| 能力 | 当前状态 |
+| 能力 | 状态 |
 |---|---|
-| DDD 目录、统一启动入口 | 已有，根 `main.go` 和 `cmd/server/main.go` 共用启动装配 |
-| Gin、GORM/PostgreSQL、go-redis、zap | 已有基础依赖与适配 |
-| HTTP 响应、分页、trace-id、JWT | 已有基础能力，本次对齐错误、安全与配置约定 |
-| grpc-go / protobuf | 已有标准健康服务和自定义 `Healthy` |
-| SpiceDB Go SDK | 新增官方 `github.com/authzed/authzed-go v1.10.0`，可选连接、TLS、启动健康检查、超时与关闭 |
-| 文档与配置模板 | 更新唯一开发规范与完整说明，安全模板独立于用户本地配置 |
-| `CheckPermission` RPC | 仅有 proto 与生成代码，未注册业务服务，不能调用 |
-| 租户、系统、角色、授权和审计业务 | 尚未实现，需先完成领域及数据库设计 |
-| 前端、业务接入 SDK、登录签发 | 当前仓库未实现 |
+| Go 1.26、DDD、Gin、grpc-go、GORM/PostgreSQL、go-redis、zap | 已初始化并复用原项目配置 |
+| 本地登录 | 用户名密码、bcrypt 摘要、RS256 JWT 签发/验签、每请求检查本地用户状态 |
+| 管理员初始化 | 显式离线命令，只允许空用户库；无默认密码和公开初始化接口 |
+| 租户与管理员 | 创建、编辑、查询、停用/恢复、租户管理员分配、最后超管保护 |
+| 系统与账号 | 每系统唯一租户、每系统一个调用账号，创建时同事务完成 |
+| 固定系统 Token | 每账号最多一把有效 Token，无自动到期/轮换；只有所属租户有效管理员可签发 |
+| 管理审计 | 变更和成功审计同事务，失败保留可信操作者；范围过滤、分页与详情 |
+| 系统身份探测 | HTTP `GET /api/v1/systemAccess/me`，验证 Token 及完整上层状态 |
+| gRPC | 标准 health 与自定义 Healthy；尚无系统身份业务 RPC |
+| SpiceDB | 官方 authzed-go 客户端，可选连接、TLS、超时、启动健康检查；业务授权未实现 |
+| 独立前端 | [olixops-permission-center-web](https://github.com/Vincentenxy/olixops-permission-center-web)：登录、身份恢复、退出、账户概览已联调；完整管理页面后续开发 |
 
-本次初始化不创建业务表，不修改用户已导入的 SpiceDB Schema/关系，不部署或修改 Kubernetes 资源。
+`permission.v1.PermissionCenterService/CheckPermission` 当前只有 proto/生成代码，未注册服务。没有用户注册、公开找回密码、refresh token、跨设备会话撤销或自动建表；这些不能从目录或文档占位推断为已实现。
 
-## 架构与数据归属
+## 架构与目录
 
-```mermaid
-flowchart LR
-    Admin[未来权限管理前端] -->|HTTP| API[权限中心 HTTP / gRPC]
-    Apps[Env Vault / 发布系统后端] -->|HTTP / gRPC| API
-    API --> UseCases[应用用例与领域规则]
-    UseCases --> Adapter[SpiceDB 基础设施适配器]
-    Adapter -->|Authzed Go SDK / gRPC| SpiceDB[独立 SpiceDB 服务]
-    UseCases --> Persistence[业务存储适配器]
-    Persistence --> DB[(权限中心业务 PostgreSQL)]
-    SpiceDB --> SpiceDBStorage[(SpiceDB 自有数据库)]
-```
-
-图中管理前端和业务用例是目标架构；当前仅有传输骨架、健康用例和基础设施初始化。领域层不依赖 Gin/GORM/SpiceDB SDK，HTTP 与 gRPC 将共享应用用例。
-
-租户表示公司，组织归属于租户；系统表示可被多个租户启用的全局业务应用。授权明确绑定租户、系统及资源范围，不将“租户→组织→系统”作为单一树，也不默认让某个范围的管理员拥有其他范围权限。相关表结构尚未审批或创建。
-
-用户及业务资源可以继续由接入系统负责；本项目业务库将保存接入配置、授权管理元数据和审计等内容。SpiceDB 内部表由 SpiceDB/Operator 管理，本项目不能直接修改。业务写入与关系写入需要明确一致性及重试方案，不能视为同一个 PostgreSQL 事务。
-
-## 完整源码结构
-
-以下列出项目维护的源码和配置入口；省略 IDE 配置、依赖缓存、本地秘密配置及构建产物。
+依赖方向：HTTP/gRPC → Application → Domain；Infrastructure 实现存储及外部服务端口，由 Bootstrap 装配。管理用例共用授权范围、事务、版本与审计规则，协议层不直连数据库或 SpiceDB。
 
 ```text
 olixops-permission-center/
-├── AGENTS.md                         # 唯一 Agent 开发规范
-├── README.md                         # 当前实现、运行、配置与验证
-├── go.mod / go.sum                    # 模块版本及依赖锁定
-├── .env.example                     # 环境变量清单，程序不自动加载 .env
-├── main.go                           # GoLand 兼容入口
-├── cmd/server/main.go                # 标准服务入口
-├── config/config.example.yaml        # 可提交的安全配置模板
-├── api/
-│   ├── openapi.yaml                  # HTTP OpenAPI 3 独立分发文档
-│   ├── proto/README.md               # 生成方式
-│   ├── proto/health/v1/health.proto   # Healthy 契约
-│   ├── proto/permission/v1/permission.proto # 待实现的权限契约
-│   └── gen/{health,permission}/v1/   # *.pb.go / *_grpc.pb.go
-├── design/database.md                # 建库授权与后续表设计审批
+├── AGENTS.md / README.md
+├── go.mod / go.sum
+├── main.go / cmd/server/main.go       # 共用服务启动过程
+├── cmd/bootstrap-admin/              # 空库显式初始化超管
+├── cmd/generate-keys/                # 一次生成持久 RSA 密钥，拒绝覆盖
+├── config/config.example.yaml       # 安全配置模板
+├── api/openapi.yaml                 # 29 条 HTTP 路由的 OpenAPI 3 契约
+├── api/proto/ / api/gen/             # proto 和生成代码
+├── design/
+│   ├── database.md                  # 七表 DDL、建库/授权
+│   ├── management-api.md            # 管理 API 和范围约定
+│   ├── phase-one-plan.md            # 进度与后续范围
+│   └── workspace.md                 # 跨电脑/跨仓库开发
 ├── internal/
-│   ├── bootstrap/run.go              # 配置、依赖、HTTP/gRPC 生命周期
-│   ├── bootstrap/run_test.go         # 无外部依赖的启动与退出测试
-│   ├── domain/doc.go                 # 领域层边界，目前没有业务实体
-│   ├── application/
-│   │   ├── doc.go
-│   │   └── health/service.go         # 共用健康检查用例
+│   ├── bootstrap/                   # 依赖装配、服务生命周期
+│   ├── domain/management/           # 实体、错误、存储/事务端口
+│   ├── application/management/      # 身份、租户、系统、Token、审计用例
+│   ├── application/health/
 │   ├── infrastructure/
-│   │   ├── doc.go
-│   │   ├── cache/redis.go            # Redis 客户端
-│   │   ├── persistence/postgres.go   # PostgreSQL/GORM 连接
-│   │   └── spicedb/                  # Authzed 客户端、健康检查及测试
+│   │   ├── persistence/             # GORM 适配、事务、范围查询
+│   │   ├── cache/                   # 可选 Redis
+│   │   └── spicedb/                 # 官方 Authzed SDK 适配
+│   ├── integration/                # 隔离 PostgreSQL 的完整 HTTP 回归测试
 │   └── interfaces/
-│       ├── doc.go
-│       ├── http/
-│       │   ├── router.go            # 公开与认证路由、统一错误入口
-│       │   ├── router_test.go       # 响应、认证和路由契约测试
-│       │   ├── handler/handler.go   # healthz / auth/me
-│       │   └── middleware/          # JWT、request-id、recovery、访问日志
-│       └── grpc/
-│           ├── server.go            # 注册标准和自定义 health
-│           ├── health_server.go     # Healthy 协议适配
-│           ├── interceptor.go       # unary / stream 通用入口
-│           ├── interceptor_test.go  # 认证、恢复和 trace 测试
-│           └── server_test.go       # 连通性测试
+│       ├── http/                    # 路由、DTO、swag、认证/限流/错误
+│       └── grpc/                    # health、共享拦截器
 ├── pkg/
-│   ├── auth/                        # HTTP/gRPC 共用 JWT 验签与测试
-│   ├── config/                      # 配置加载、覆盖、校验及测试
-│   ├── logger/logger.go             # 全局 zap 包装
-│   ├── page/                        # pageNum/pageSize → total/list
-│   ├── response/response.go         # code/msg/data
-│   └── userctx/user.go              # 请求内用户上下文
-├── Dockerfile                       # 多阶段构建，只复制安全配置模板
-├── .dockerignore                    # 排除本地配置、秘密和构建产物
-└── .gitignore                       # 排除本地配置与生成文档
+│   ├── auth/                        # JWT 签发/验签、bcrypt
+│   ├── credential/                  # 固定 Token 随机生成和摘要比对
+│   ├── config/ / logger/
+│   ├── page/ / response/
+│   └── requestid/ / userctx/
+├── Dockerfile / .dockerignore
+└── .gitignore                       # 忽略本地配置、PEM、生成 docs
 ```
 
-具体开发规则和分层约束以 [AGENTS.md](AGENTS.md) 为准；HTTP 契约见 [api/openapi.yaml](api/openapi.yaml)，protobuf 生成步骤见 [api/proto/README.md](api/proto/README.md)。Handler 维护 swag 注解，生成的 `docs/` 不提交版本库。
+租户拥有多个系统，系统不能跨租户迁移；用户与租户多对多。平台超管负责租户和后台用户管理，租户管理员管理自己有效租户内的系统。系统 Token 签发是明确例外：**超管也必须具有目标租户的有效管理员关联**。
 
-## 配置与本地运行
+后台人类管理员、系统调用账号、接入系统内的业务用户是三种身份。PostgreSQL 七表保存管理状态和审计；SpiceDB 的内部表由其服务/Operator 维护。第一部分不会写入 Schema、关系或预建 outbox。
 
-使用 `go.mod` 指定的 Go 1.26，依赖版本以 `go.mod/go.sum` 为准。以下命令在本项目根目录、PowerShell 中运行。
+## 首次运行并登录
+
+以下以 PowerShell 为例，在后端根目录执行。需要 Go 1.26 和已准备好的 PostgreSQL；Redis、SpiceDB 不影响本期登录。
+
+1. 按 [数据库文档](design/database.md) 创建数据库、用户/授权并执行第 7 节完整七表 DDL。服务不会调用 AutoMigrate；旧草案已经执行过时先比对结构，不能重复运行建表事务。
+2. 下载 Go 依赖并生成本地 RSA 密钥。命令不会覆盖已有文件；以后重启复用同一密钥。
+3. 配置自己的数据库与 JWT，显式初始化首个管理员，再启动服务。
 
 ```powershell
 go mod download
+go run ./cmd/generate-keys --private-file config/jwt-private.pem --public-file config/jwt-public.pem
+
 $env:CONFIG_FILE = 'config/config.example.yaml'
+$env:AUTH_JWT_PRIVATE_KEY = [IO.File]::ReadAllText((Join-Path $PWD 'config/jwt-private.pem'))
+$env:AUTH_JWT_PUBLIC_KEY = [IO.File]::ReadAllText((Join-Path $PWD 'config/jwt-public.pem'))
+$env:AUTH_JWT_ISSUER = 'olixops-permission-center'
+$env:AUTH_JWT_AUDIENCE = 'olixops-permission-center-web'
+# 通过自己的秘密管理方式设置 DATABASE_DSN，或使用本地 config/config.yaml。
+# 不把真实密码粘贴进仓库内的模板或文档。
+
+$env:BOOTSTRAP_USERNAME = Read-Host '首个管理员账号'
+$env:BOOTSTRAP_NAME = Read-Host '显示名称'
+$env:BOOTSTRAP_PASSWORD = [Net.NetworkCredential]::new('', (Read-Host '初始密码' -AsSecureString)).Password
+try {
+  go run ./cmd/bootstrap-admin
+  if ($LASTEXITCODE -ne 0) { throw '管理员初始化失败，请检查配置、密码规则和空用户库要求' }
+} finally {
+  Remove-Item Env:BOOTSTRAP_PASSWORD -ErrorAction SilentlyContinue
+}
 go run ./cmd/server
 ```
 
-安全模板默认不连接 PostgreSQL、Redis 或 SpiceDB，适合先验证 HTTP/gRPC 骨架。`go run .` 进入同一个启动过程。服务响应 Ctrl+C/SIGTERM，在配置的上限内停止 HTTP/gRPC 并关闭 PostgreSQL、Redis、SpiceDB 连接。已配置的依赖初始化失败时退出；Redis 启用后会通过 Ping 验证连接。
+用户名为 3～64 位字母/数字及 `_.@-`，首位为字母或数字，规范化为小写；密码 12～72 字节。初始用户为 `platform_admin`；后续创建用户默认 `none`，由超管分配租户管理员关系。初始化命令重跑会拒绝，不改变已有账号或角色。不得把测试账号当作产品默认账号。
 
-用户已有 `config/config.yaml` 会保留且不再作为可提交模板；默认未设置 `CONFIG_FILE` 时读取它。默认文件不存在时使用默认值；显式指定的文件不存在或配置格式、类型错误时返回安全错误。环境变量优先于文件，文件优先于内置默认值。
+macOS/Linux 使用同一 Go 命令，可将文件内容通过环境变量注入，例如 `export AUTH_JWT_PRIVATE_KEY="$(cat config/jwt-private.pem)"`；密码应从交互输入或秘密管理工具读取，避免进入 shell 历史。PEM 文件和本地配置均被 Git/Docker 忽略，生产通过 Secret 挂载配置或环境注入。
 
-| 环境变量 | 文件配置 | 默认值 / 用途 |
+然后进入独立前端仓库，按其 README 运行 `pnpm install --frozen-lockfile` 和 `pnpm dev`，默认代理后端 `127.0.0.1:8080`，使用刚初始化的账号登录。新电脑目录布局见 [workspace.md](design/workspace.md)。
+
+只想验证健康接口时，可直接指定安全模板启动；没有数据库/签发配置时，管理/登录用例返回 503，健康服务仍可用。默认未指定 CONFIG_FILE 时读取被忽略的 `config/config.yaml`，本次未覆盖用户已有文件。
+
+## 配置
+
+优先级：环境变量 > 配置文件 > 默认值。`.env.example` 仅是清单，程序不自动加载 `.env`。YAML 先解析再展开环境占位，避免密码中的 YAML 特殊字符改变结构。显式配置文件不存在、类型错误或密钥不匹配均安全失败，不打印配置内容。
+
+| 环境变量 | 配置字段 | 默认/用途 |
 |---|---|---|
-| `CONFIG_FILE` | — | `config/config.yaml`，选择配置路径 |
-| `APP_ENV` | `app.environment` | `development`；`production/release` 使用生产日志 |
-| `HTTP_ADDR` | `server.http.host/port` | `:8080`，HTTP 监听地址 |
-| `GRPC_ADDR` | `server.grpc.host/port` | `:9090`，本服务 gRPC 监听地址 |
-| `HTTP_READ_TIMEOUT` | `server.http.read_timeout` | `10s` |
-| `HTTP_WRITE_TIMEOUT` | `server.http.write_timeout` | `30s` |
-| `HTTP_IDLE_TIMEOUT` | `server.http.idle_timeout` | `60s` |
-| `SHUTDOWN_TIMEOUT` | `server.shutdown_timeout` | `5s`，优雅退出上限 |
-| `DATABASE_DSN` | `database.*` | 未配置则跳过；也可组合 host/port/user/password/name/schema/ssl_mode |
-| `REDIS_ADDR` | `redis.addrs` | 未配置则跳过；当前只支持单实例地址，多个地址配置会报错 |
-| `REDIS_PASSWORD` | `redis.password` | 空；通过环境或 Secret 注入 |
-| `REDIS_DB` | `redis.db` | `0` |
-| — | `redis.enabled` | `false` 可关闭文件中的 Redis 连接 |
-| `AUTH_JWT_PUBLIC_KEY` | `auth.jwt-public-key` | 空；外部 JWT RSA 公钥，PEM 或 base64 DER |
-| `AUTH_JWT_ISSUER` | `auth.issuer` | 空；受信任 JWT 签发者 |
-| `AUTH_JWT_AUDIENCE` | `auth.audience` | 空；此服务要求的 JWT audience |
-| `SPICEDB_ENABLED` | `spicedb.enabled` | `false`；明确启用客户端 |
-| `SPICEDB_ENDPOINT` | `spicedb.endpoint` | 空；SpiceDB 的 `host:port` |
-| `SPICEDB_TOKEN` | `spicedb.token` | 空；由环境或 Secret 注入的访问密钥 |
-| `SPICEDB_INSECURE` | `spicedb.insecure` | `false`；显式使用无 TLS 连接 |
-| `SPICEDB_CA_FILE` | `spicedb.ca-file` | 空；自定义 CA 文件，空时使用系统信任 |
-| `SPICEDB_SERVER_NAME` | `spicedb.server-name` | 空；可选 TLS 服务端证书名称 |
-| `SPICEDB_TIMEOUT` | `spicedb.timeout` | `5s`；启动探测及 unary 调用超时 |
+| CONFIG_FILE | — | config/config.yaml |
+| APP_ENV | app.environment | development；production/release 用 JSON 日志 |
+| HTTP_ADDR / GRPC_ADDR | server.http / server.grpc 的 host、port | :8080 / :9090 |
+| HTTP_READ_TIMEOUT | server.http.read_timeout | 10s |
+| HTTP_WRITE_TIMEOUT | server.http.write_timeout | 30s，同时为 HTTP 用例设置执行时限 |
+| HTTP_IDLE_TIMEOUT / SHUTDOWN_TIMEOUT | server.http.idle_timeout / server.shutdown_timeout | 60s / 5s |
+| HTTP_TRUSTED_PROXIES | server.http.trusted_proxies | 空；逗号分隔实际代理 IP/CIDR |
+| DATABASE_DSN | database.host/port/user/password/name/schema/ssl_mode | 未配置则跳过业务 DB |
+| REDIS_ADDR / REDIS_PASSWORD / REDIS_DB | redis.addrs/password/db | 单实例；默认关闭 |
+| AUTH_JWT_PRIVATE_KEY | auth.jwt-private-key | RSA 私钥 PEM 或 base64 DER，登录签发用 |
+| AUTH_JWT_PUBLIC_KEY | auth.jwt-public-key | RSA 公钥 PEM 或 base64 DER，必须与私钥匹配 |
+| AUTH_JWT_ISSUER / AUTH_JWT_AUDIENCE | auth.issuer / auth.audience | 模板为 olixops-permission-center / olixops-permission-center-web |
+| AUTH_JWT_TOKEN_TTL | auth.token-ttl | 8h，可设 1s～24h |
+| SPICEDB_ENABLED | spicedb.enabled | false |
+| SPICEDB_ENDPOINT / SPICEDB_TOKEN | spicedb.endpoint / spicedb.token | 服务地址与后端专用凭据 |
+| SPICEDB_INSECURE | spicedb.insecure | false，开发明文连接需显式开启 |
+| SPICEDB_CA_FILE / SPICEDB_SERVER_NAME | spicedb.ca-file / spicedb.server-name | 可选可信 CA 与服务端名称 |
+| SPICEDB_TIMEOUT | spicedb.timeout | 5s，启动探测和 unary 调用上限 |
 
-旧 `auth.jwt_public_key` 仍兼容，新增配置统一使用 `auth.jwt-public-key`。文件支持 `${VAR}` 和 `${VAR:-default}` 占位；先解析 YAML 再展开字段值，避免凭据中的特殊字符改变 YAML 结构。支持范围以安全模板和配置加载代码为准，旧配置中未使用的扩展字段不代表相应功能已经实现。
+旧 `auth.jwt_public_key` 仅兼容读取，新增配置用连字符形式。已启用 PostgreSQL/Redis/SpiceDB 的连接失败会阻止启动；健康接口只说明进程可服务，不等于依赖始终健康或授权正确。
 
-### 启用 SpiceDB
+登录限流按已验证的客户端 IP：突发 10 次，每 6 秒恢复一次，返回标准 429。默认不信任任何转发头。经过 Nginx/Higress 时必须将**实际代理对端地址范围**配置为 trusted_proxies，并由边界代理覆盖/正确维护客户端地址头；不要设置任意来源可信。多副本生产需在网关增加统一限流，进程内计数不是分布式限流。
 
-Go SDK 是 [官方 Authzed Go 客户端](https://github.com/authzed/authzed-go)，模块名为 `github.com/authzed/authzed-go`，当前锁定 v1.10.0。
+## 接口和认证
 
-当前部署的本地开发入口为 `192.168.1.103:30031`；在同一 Kubernetes 集群中可使用 `dev.spicedb-poc.svc.cluster.local:50051`。这是现有部署的参考地址，模板不内置私人网络地址。
+| 接口 | 说明 |
+|---|---|
+| GET /api/v1/pub/healthz | 公开健康检查 |
+| POST /api/v1/pub/auth/login | 用户名密码 → accessToken、expiresAt、user |
+| GET /api/v1/auth/me | JWT + 实时用户状态 → userId、username、name、platformRole |
+| POST /api/v1/tenant/*、/user/* | 租户、后台用户、成员管理 |
+| POST /api/v1/system/* | 系统、账号、固定 Token 管理 |
+| POST /api/v1/audit/list、/audit/detail | 范围过滤的审计查询 |
+| GET /api/v1/systemAccess/me | 固定系统 Token → tenantId、systemId、accountId、keyId |
 
-先通过环境或 Secret 设置 `SPICEDB_TOKEN`。以下示例不写入真实密钥：
+完整请求和 DTO 见 [管理接口](design/management-api.md) 与 [OpenAPI](api/openapi.yaml)。成功 `{code:0,msg:"",data:...}`，普通业务失败 code=-1；HTTP 400/401/403/404/409/429/503 等保留真实状态及标准外壳。分页 `pageNum/pageSize` 默认 1/20、最大 200；返回 `total/list`，空列表 `[]`。
 
-```powershell
-$env:CONFIG_FILE = 'config/config.example.yaml'
-$env:SPICEDB_ENABLED = 'true'
-$env:SPICEDB_ENDPOINT = '192.168.1.103:30031'
-$env:SPICEDB_INSECURE = 'true'
-go run ./cmd/server
-```
+JWT 只允许 RS256，并验证 exp/iss/aud；sub 固定内部 UUID。系统 Token 与管理员 JWT 使用独立入口，失败不互相回退。系统 Token 为 `opc_<32位hex keyId>.<43位base64url secret>`，只存 SHA-256 摘要；仅创建响应显示一次，查询不可找回。租户、系统、账号停用或 Token 吊销会影响后续请求。
 
-该入口当前使用明文 gRPC，才需要 `SPICEDB_INSECURE=true`；生产使用 TLS，按需要配置 CA 和服务端名称。启用但缺少配置、连接失败或超时时，初始化返回错误，不能静默当成已接入。
+管理员 JWT 默认 8 小时；前端退出清理当前标签页凭据，未实现跨设备服务端撤销。用户停用后，即使 JWT 尚未到期也被拒绝。系统固定 Token 不受其创建者后来退出登录影响，停用/吊销应操作对应系统、账号或凭据。
 
-启动仅执行标准健康检查，复用连接并在退出时关闭；不会读取/修改 Schema，也不会写入关系。**SpiceDB 的标准 health 可公开调用，启动探测成功不代表 token 有效或业务权限已经正确。** 后续授权用例需独立验证认证、模型和关系，并通过基础设施适配调用 SDK。Unary 调用自动应用配置超时；Watch 等流式调用由调用方设置 context 生命周期与取消，不使用统一的 5 秒流存活上限。
+## 事务、审计与日志
 
-## 当前接口与认证
+一期所有管理写事务通过 PostgreSQL `pg_advisory_xact_lock(147,1)` 串行化，事务内复查用户/租户状态；适用于小规模管理写入，后续高吞吐需单独优化。读取使用 Repeatable Read，范围、计数和列表一致。version 拒绝覆盖旧版本，最后有效超管保护与并发签发在同一事务规则下执行。
 
-| 协议 | 接口 | 认证及含义 |
-|---|---|---|
-| HTTP GET | `/api/v1/pub/healthz` | 公开，进程健康用例 |
-| HTTP GET | `/api/v1/auth/me` | Bearer JWT；仅输出 `userId/name` |
-| gRPC | `grpc.health.v1.Health/Check`、`Watch` | 公开标准服务健康协议 |
-| gRPC | `health.v1.HealthService/Healthy` | 公开自定义连通性检查 |
+成功变更与成功审计共同提交；审计失败回滚变更。失败事件独立尝试记录已验证操作者，对不可安全归属的越权目标留空；审计库不可用时只打印安全分类和请求 ID，不宣称失败审计已入库。暂无外部告警平台集成。
 
-HTTP 成功为 `{code:0,msg:"",data:...}`；普通业务失败 code 为 -1；HTTP 400/401/403/404/405/500 等错误保留真实状态并统一封装。分页入参为 `pageNum/pageSize`，Handler 默认处理为 1/20、最大 200；响应为 `total/list`，空列表为 `[]`。
+日志统一经 `pkg/logger`。HTTP/gRPC 共用 `pkg/requestid`，合法的 1～128 字节可见 ASCII 请求 ID 原样透传，否则生成；响应、日志和审计一致。禁止记录密码、JWT、Cookie、系统 Token、摘要、完整请求/配置或私密 DSN。
 
-JWT 要求 RS256、有效期及配置匹配的 issuer/audience。用户标识来自 `staffuserid`，缺省回退 `sub`；名称来自 `name`。缺少有效认证配置时受保护接口不能访问；本项目不会创建登录账号、签发 JWT 或返回原始 token/Cookie。
-
-健康接口用于连通性，不证明所有业务依赖持续可用。权限业务尚未实现；`permission.v1.PermissionCenterService/CheckPermission` 仅有契约与生成代码，现阶段未注册。其他 RPC 经统一拦截器认证后还需业务层验证服务身份的授权范围，不能沿用健康接口的公开性。
-
-### 连通性验证
+## gRPC 与 SpiceDB
 
 ```powershell
 Invoke-RestMethod 'http://127.0.0.1:8080/api/v1/pub/healthz'
 grpcurl -plaintext -import-path api/proto -proto health/v1/health.proto -d '{}' 127.0.0.1:9090 health.v1.HealthService/Healthy
 ```
 
-`Healthy` 预期返回 `healthy: true`、`message: "ok"`。grpcurl 是可选调试工具，当前自定义服务不依赖 reflection，命令显式传入 proto。标准 health 和 Healthy 的 Go 客户端调用由 gRPC 测试覆盖。
+Healthy 返回 healthy=true、message=ok；标准 `grpc.health.v1.Health/Check/Watch` 同样公开。gRPC 拦截器共用认证、trace、日志与恢复机制；新增系统业务 RPC 必须复用应用层身份用例并补生成代码，不能把健康接口当作系统 Token 已验证。
 
-## 日志、安全与部署
+SpiceDB SDK 为官方 [authzed-go](https://github.com/authzed/authzed-go)，版本以 go.mod 为准。当前开发集群入口可按实际环境设为 `192.168.1.103:30031`，明文开发连接显式使用 `SPICEDB_INSECURE=true`；生产使用 TLS/可信 CA。该地址不写进安全模板。
 
-日志统一通过 `pkg/logger`；HTTP 读取/生成并回写 `x-request-id`，gRPC 使用同名 metadata，应用通过 context 传递 trace-id。开发日志为带颜色的控制台格式，生产为 JSON，时间保留毫秒与时区。
+启用后的启动健康检查只验证可达和健康，不证明 PSK 有效、Schema 存在或业务权限正确；进程不会自动导入 Playground 内容或 WriteSchema。第二部分再实现系统隔离的授权模型、关系变更、权限查询及跨 PostgreSQL/SpiceDB 的一致性方案。
 
-配置、JWT、Cookie、数据库连接凭据和 SpiceDB token 不进入响应、日志、审计或提交内容。测试使用虚构凭据，不读取已有 Kubernetes Secret。授权结果缓存、自定义角色、组织继承等需要具体设计，当前没有默认放行或临时权限模型。
+## 构建与验证
+
+```powershell
+go test ./...
+go vet ./...
+go build ./...
+go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g main.go -o docs --outputTypes json,yaml
+git diff --check
+```
+
+`docs/` 为忽略的生成产物；独立 OpenAPI 随源码提交。proto 生成步骤见 [api/proto/README.md](api/proto/README.md)。
+
+可选真实 PostgreSQL 列表回归：设置 `TEST_DATABASE_DSN` 后运行 `go test ./internal/infrastructure/persistence -run TestNativeManagementListQueries -v`。这是只读测试，不建表；未配置时明确跳过。集成环境必须使用隔离测试库，不使用个人集群或生产凭据。
+
+完整 HTTP/事务集成回归使用 `go test -count=1 -v ./internal/integration`。同样读取 `TEST_DATABASE_DSN`，但只接受数据库名以 `_test` 结尾的隔离测试库；测试创建随机 schema，从本仓库数据库文档装载七表 SQL，并在结束时仅清理自己创建的 schema。无需预先创建 public 业务表，未设置 DSN 时明确跳过。该套测试覆盖两个超管并发降权/停用、失败审计操作者及审计故障回滚，源码随仓库提交。
+
+GitHub Actions 已配置普通 Go 检查和 PostgreSQL 17 服务上的独立集成测试；工作流配置存在不代表远程运行已经通过，实际结果以对应提交的 Actions 为准。
+
+本次在隔离原生 PostgreSQL 17.6 中执行七表 SQL，并完成 137 项 HTTP 流程断言：登录、跨租户、签发资格、并发单密钥、停用/恢复/吊销、并发版本与审计回滚。还验证可信代理限流、失败审计操作者、密钥生成防覆盖、JWT 算法/issuer/audience 和密码规则。前端通过真实浏览器登录/刷新/退出及桌面/390px 窄屏检查。完整 Go 测试、vet、Linux amd64 无 CGO 构建与 OpenAPI 路由/引用验证通过。
 
 ```powershell
 docker build -t olixops-permission-center:local .
 docker run --rm -p 8080:8080 -p 9090:9090 olixops-permission-center:local
 ```
 
-多阶段 Dockerfile 生成独立二进制，运行镜像只带安全示例。真实配置通过挂载文件或环境变量/Kubernetes Secret 注入；业务数据库准备步骤见 [design/database.md](design/database.md)。本项目没有自动创建业务表或部署集群的启动步骤。
-
-## 验证与后续开发
-
-```powershell
-go vet ./...
-go test ./...
-go build ./...
-
-# 从 Handler 注解生成文档，输出 docs/ 不提交
-go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g main.go -o docs --outputTypes json,yaml
-```
-
-修改 Go 文件后对修改范围执行 gofmt；仅文档变更检查链接与 `git diff --check`。测试结果以本次实际执行为准，不能把本地测试或 health 成功解释为线上授权功能验收。
-
-下一阶段先确定一期 Schema、租户/系统/资源 ID 与调用方身份，完成表设计审批和接口契约，然后实现分配角色、撤销角色、直接成员查询和权限检查。通过两个业务系统、两个测试租户验证授权范围隔离，再接入统一管理前端。Schema 应版本化测试和受控发布，不在进程启动时导入 Playground 测试文件。
+多阶段镜像只含独立二进制与安全模板，真实配置通过环境或文件挂载。Docker Engine 当前不可用，本次未运行镜像构建或 Kubernetes 部署；未修改业务数据库。前端 Docker/Nginx 模板在前端仓库，正式上线时配置同源 /api 代理、HTTPS 和可信代理范围。

@@ -33,7 +33,7 @@ func TestHTTPAuthenticationAndEnvelope(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Config{AuthJWTPublicKey: base64.StdEncoding.EncodeToString(der), AuthJWTIssuer: "test-issuer", AuthJWTAudience: "test-audience"}
-	token, err := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{"iss": "test-issuer", "aud": "test-audience", "exp": time.Now().Add(time.Hour).Unix(), "staffuserid": "test-user", "name": "Test User"}).SignedString(key)
+	token, err := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{"iss": "test-issuer", "aud": "test-audience", "exp": time.Now().Add(time.Hour).Unix(), "sub": "11111111-1111-4111-8111-111111111111", "name": "Test User"}).SignedString(key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestHTTPAuthenticationAndEnvelope(t *testing.T) {
 		msg                       string
 	}{
 		{"public health", "GET", "/api/v1/pub/healthz", "", 200, 0, ""},
-		{"authenticated identity", "GET", "/api/v1/auth/me", token, 200, 0, ""},
+		{"local identity storage unavailable", "GET", "/api/v1/auth/me", token, 503, 503, "Service Unavailable"},
 		{"missing token", "GET", "/api/v1/auth/me", "", 401, 401, "Unauthorized"},
 		{"invalid token", "GET", "/api/v1/auth/me", "fake-sensitive-token", 401, 401, "Unauthorized"},
 		{"no substring bypass", "GET", "/api/v1/resource/pub/secret", "", 401, 401, "Unauthorized"},
@@ -90,9 +90,6 @@ func TestHTTPAuthenticationAndEnvelope(t *testing.T) {
 			if strings.Contains(recorder.Body.String(), "fake-sensitive") || strings.Contains(recorder.Body.String(), token) || strings.Contains(recorder.Body.String(), "\"jwt\"") {
 				t.Fatal("response leaked credentials or internal details")
 			}
-			if tc.name == "authenticated identity" && string(body.Data) != `{"userId":"test-user","name":"Test User"}` {
-				t.Fatalf("wrong public identity: %s", body.Data)
-			}
 		})
 	}
 	for _, entry := range logs.All() {
@@ -118,7 +115,7 @@ func TestHealthWorksWithoutAuthConfiguration(t *testing.T) {
 	for _, tc := range []struct {
 		path   string
 		status int
-	}{{"/api/v1/pub/healthz", http.StatusOK}, {"/api/v1/auth/me", http.StatusInternalServerError}} {
+	}{{"/api/v1/pub/healthz", http.StatusOK}, {"/api/v1/auth/me", http.StatusServiceUnavailable}} {
 		recorder := httptest.NewRecorder()
 		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, tc.path, nil))
 		if recorder.Code != tc.status {

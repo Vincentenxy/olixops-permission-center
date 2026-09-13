@@ -16,8 +16,19 @@ import (
 var ErrUnauthorized = errors.New("unauthorized")
 
 type Verifier struct {
-	publicKey *rsa.PublicKey
-	parser    *jwt.Parser
+	publicKey    *rsa.PublicKey
+	parser       *jwt.Parser
+	localSubject bool
+}
+
+// NewLocalVerifier binds the management login to the internal UUID in sub.
+// Legacy staffuserid claims cannot override a locally issued identity.
+func NewLocalVerifier(rawPublicKey, issuer, audience string) (*Verifier, error) {
+	v, err := NewVerifier(rawPublicKey, issuer, audience)
+	if err == nil {
+		v.localSubject = true
+	}
+	return v, err
 }
 
 type claims struct {
@@ -55,7 +66,7 @@ func (v *Verifier) Authenticate(header, cookie string) (userctx.User, error) {
 		return userctx.User{}, ErrUnauthorized
 	}
 	userID := strings.TrimSpace(parsed.StaffUserID)
-	if userID == "" {
+	if userID == "" || v.localSubject {
 		userID = strings.TrimSpace(parsed.Subject)
 	}
 	if userID == "" {
