@@ -4,6 +4,8 @@
 
 开发前阅读 [AGENTS.md](AGENTS.md)。数据库唯一 SQL 在 [design/database.md](design/database.md)，接口说明在 [design/management-api.md](design/management-api.md)，进度见 [第一部分计划](design/phase-one-plan.md)。
 
+本次交付基线、待核对环境与后续事项统一记录在 [开发交接清单](design/handoff.md)，接手时先看该清单；实际部署状态与本地验证结果分别记录。
+
 ## 当前能力
 
 | 能力 | 状态 |
