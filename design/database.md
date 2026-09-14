@@ -7,8 +7,9 @@
 ## 1. 初始化前提
 
 - 以下脚本需要使用 PostgreSQL 管理员角色（通常是 `postgres`）执行。
-- `app_role` 是应用连接数据库使用的非超级用户角色。
-- `migration_owner` 是实际执行迁移/建表的角色。PostgreSQL 的默认权限按“对象创建者”隔离，必须为每个实际建表角色设置一次。
+- **应用数据库用户固定为 `permission_center`**，使用非超级用户角色。下文 `app_role` 只是 `psql` 变量名，其值固定为 `permission_center`，无需创建名为 `app_role` 的用户。
+- 数据库名称沿用 `permission_center`，下文用 `app_db` 变量引用；数据库与登录用户是两个不同的对象，名称相同。
+- `migration_owner` 是实际执行迁移/建表的角色，本初始化示例使用 `postgres`。它不是应用连接用户；应用始终使用 `permission_center`。PostgreSQL 的默认权限按“对象创建者”隔离，必须为每个实际建表角色设置一次。
 - `app_password` 只作为脚本变量示例，执行前必须替换为强密码；不要把真实密码提交到仓库。
 - `CREATE DATABASE` 不能放在事务中，脚本应通过 `psql` 执行，不要包在外层事务里。
 
@@ -24,6 +25,7 @@ psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f permission-center-init.sql
 
 ```sql
 -- 使用 postgres 等管理员角色执行。
+-- 应用登录用户固定为 permission_center；数据库名称也使用 permission_center。
 \set app_db 'permission_center'
 \set app_role 'permission_center'
 \set app_password 'CHANGE_ME_BEFORE_RUN'
@@ -85,9 +87,9 @@ ALTER DEFAULT PRIVILEGES FOR ROLE :migration_owner IN SCHEMA public
     GRANT EXECUTE ON FUNCTIONS TO :app_role;
 ```
 
-## 3. 多个建表角色的默认权限
+## 3. 多个建表角色的默认权限（按需）
 
-`ALTER DEFAULT PRIVILEGES` 只对指定的对象创建者生效。如果迁移由多个角色执行，需要以管理员身份为每个角色重复下面的语句；例如迁移角色是 `permission_center_migrator`：
+默认使用 `postgres` 建表时，第 2 节已配置新对象自动授权给 `permission_center`，无需额外创建迁移用户。`ALTER DEFAULT PRIVILEGES` 只对指定的对象创建者生效；仅当实际使用其他已存在的角色建表时，才需要补充本节授权。下面以已存在的 `permission_center_migrator` 为例，它不是应用用户，也不是本期必须创建的账号；授权接收方仍固定为 `permission_center`：
 
 ```sql
 \connect permission_center
@@ -107,6 +109,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE permission_center_migrator IN SCHEMA public
 ## 4. 应用连接配置
 
 可提交的配置文件为 [config/config.example.yaml](../config/config.example.yaml)。填写 `database.host/port/user/password/name/schema/ssl_mode`，或通过 `DATABASE_DSN` 覆盖连接配置；本地 `config/config.yaml` 原样保留且不提交。安全模板中的密码可通过 `DATABASE_PASSWORD` 注入。
+
+本项目连接配置使用 `database.user: permission_center`、`database.name: permission_center`；通过 DSN 连接时对应 `user=permission_center dbname=permission_center`。密码填写该数据库用户的实际密码；前端管理员账号通过后续初始化命令单独创建，与 PostgreSQL 用户不同。
 
 ```text
 DATABASE_DSN
