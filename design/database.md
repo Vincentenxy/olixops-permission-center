@@ -7,104 +7,72 @@
 ## 1. 初始化前提
 
 - 以下脚本需要使用 PostgreSQL 管理员角色（通常是 `postgres`）执行。
-- **应用数据库用户固定为 `permission_center`**，使用非超级用户角色。下文 `app_role` 只是 `psql` 变量名，其值固定为 `permission_center`，无需创建名为 `app_role` 的用户。
-- 数据库名称沿用 `permission_center`，下文用 `app_db` 变量引用；数据库与登录用户是两个不同的对象，名称相同。
-- `migration_owner` 是实际执行迁移/建表的角色，本初始化示例使用 `postgres`。它不是应用连接用户；应用始终使用 `permission_center`。PostgreSQL 的默认权限按“对象创建者”隔离，必须为每个实际建表角色设置一次。
-- `app_password` 只作为脚本变量示例，执行前必须替换为强密码；不要把真实密码提交到仓库。
-- `CREATE DATABASE` 不能放在事务中，脚本应通过 `psql` 执行，不要包在外层事务里。
+- **应用数据库用户固定为 `permission_center`**，使用非超级用户角色；数据库名称也固定为 `permission_center`。二者是不同的 PostgreSQL 对象，只是名称相同。
+- SQL 中的 `CHANGE_ME_BEFORE_RUN` 只是密码占位符，执行前必须替换为强密码；不要把真实密码提交到仓库。
+- `CREATE DATABASE` 不能放在事务中。创建用户和数据库时连接现有的 `postgres` 数据库；创建完成后再切换到 `permission_center` 数据库。
+- 第 7 节业务表 DDL 统一使用 `permission_center` 用户执行。这样当前及未来由该用户创建的表都归其所有，不需要再对自身授权。
 
 ## 2. 创建角色、数据库和授权
 
-执行方式示例（先将第二节的 SQL 代码块另存为 `permission-center-init.sql`）：
+### 2.1 创建固定用户和数据库
 
-```bash
-psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f permission-center-init.sql
-```
-
-`psql` 的 `\connect` 和 `\gexec` 是客户端元命令，不是 PostgreSQL 服务端 SQL，因此不能直接把 Markdown 文档作为 `-f` 输入。
+以 `postgres` 等管理员登录，并连接到现有的 `postgres` 数据库后执行。以下均为普通 PostgreSQL SQL，不依赖 `psql` 变量或元命令；请先替换密码占位符。
 
 ```sql
--- 使用 postgres 等管理员角色执行。
--- 应用登录用户固定为 permission_center；数据库名称也使用 permission_center。
-\set app_db 'permission_center'
-\set app_role 'permission_center'
-\set app_password 'CHANGE_ME_BEFORE_RUN'
-\set migration_owner 'postgres'
-
--- 角色不存在时创建；已存在时下面的 ALTER ROLE 会同步密码和最小权限属性。
-SELECT format(
-    'CREATE ROLE %I LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT',
-    :'app_role',
-    :'app_password'
-)
-WHERE NOT EXISTS (
-    SELECT 1 FROM pg_roles WHERE rolname = :'app_role'
-)
-\gexec
-
-ALTER ROLE :app_role
+CREATE USER permission_center
     WITH LOGIN
-    PASSWORD :'app_password'
+    PASSWORD 'CHANGE_ME_BEFORE_RUN'
     NOSUPERUSER
     NOCREATEDB
     NOCREATEROLE
-    INHERIT;
-
--- 数据库不存在时创建，并将应用角色设为 owner。
-SELECT format(
-    'CREATE DATABASE %I OWNER %I ENCODING %L TEMPLATE template0',
-    :'app_db',
-    :'app_role',
-    'UTF8'
-)
-WHERE NOT EXISTS (
-    SELECT 1 FROM pg_database WHERE datname = :'app_db'
-)
-\gexec
-
-GRANT CONNECT, TEMPORARY ON DATABASE :app_db TO :app_role;
-
-\connect :app_db
-
--- public schema 由应用角色维护；不授予应用角色数据库级 CREATEDB 等管理员权限。
-ALTER SCHEMA public OWNER TO :app_role;
-GRANT USAGE, CREATE ON SCHEMA public TO :app_role;
-
--- 让应用角色可以访问初始化脚本执行前已经存在的对象。
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO :app_role;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO :app_role;
-GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO :app_role;
-
--- 让 migration_owner 后续新建的表、序列、函数自动授权给应用角色。
--- 如果应用角色本身执行迁移，请将 migration_owner 改成 permission_center。
-ALTER DEFAULT PRIVILEGES FOR ROLE :migration_owner IN SCHEMA public
-    GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLES TO :app_role;
-
-ALTER DEFAULT PRIVILEGES FOR ROLE :migration_owner IN SCHEMA public
-    GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO :app_role;
-
-ALTER DEFAULT PRIVILEGES FOR ROLE :migration_owner IN SCHEMA public
-    GRANT EXECUTE ON FUNCTIONS TO :app_role;
+    INHERIT
+    NOREPLICATION
+    NOBYPASSRLS;
 ```
 
-## 3. 多个建表角色的默认权限（按需）
-
-默认使用 `postgres` 建表时，第 2 节已配置新对象自动授权给 `permission_center`，无需额外创建迁移用户。`ALTER DEFAULT PRIVILEGES` 只对指定的对象创建者生效；仅当实际使用其他已存在的角色建表时，才需要补充本节授权。下面以已存在的 `permission_center_migrator` 为例，它不是应用用户，也不是本期必须创建的账号；授权接收方仍固定为 `permission_center`：
+确认上一条已提交后，保持连接到 `postgres` 数据库，开启客户端自动提交并**单独执行**下面的建库语句。不要选中两段一起执行，也不要包在 `BEGIN/COMMIT` 中：
 
 ```sql
-\connect permission_center
-
-ALTER DEFAULT PRIVILEGES FOR ROLE permission_center_migrator IN SCHEMA public
-    GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLES TO permission_center;
-
-ALTER DEFAULT PRIVILEGES FOR ROLE permission_center_migrator IN SCHEMA public
-    GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO permission_center;
-
-ALTER DEFAULT PRIVILEGES FOR ROLE permission_center_migrator IN SCHEMA public
-    GRANT EXECUTE ON FUNCTIONS TO permission_center;
+CREATE DATABASE permission_center
+    WITH OWNER = permission_center
+    ENCODING = 'UTF8'
+    TEMPLATE = template0;
 ```
 
-如果未来新增独立 schema，必须同时为该 schema 执行现有对象授权和默认权限授权；不能假设 `public` 的权限会自动继承到其他 schema。
+`CREATE USER` 和 `CREATE DATABASE` 是一次性初始化语句，目标已存在时会明确报错，不要反复执行。如果用户已经存在，只需用下面的语句同步登录权限和密码；如果数据库已经存在，只需确认并同步 owner：
+
+```sql
+ALTER USER permission_center
+    WITH LOGIN
+    PASSWORD 'CHANGE_ME_BEFORE_RUN'
+    NOSUPERUSER
+    NOCREATEDB
+    NOCREATEROLE
+    INHERIT
+    NOREPLICATION
+    NOBYPASSRLS;
+
+ALTER DATABASE permission_center OWNER TO permission_center;
+```
+
+### 2.2 设置 schema 和对象权限
+
+切换连接到 `permission_center` 数据库，仍以 `postgres` 等管理员身份执行：
+
+```sql
+GRANT CONNECT, TEMPORARY ON DATABASE permission_center TO permission_center;
+
+ALTER SCHEMA public OWNER TO permission_center;
+GRANT USAGE, CREATE ON SCHEMA public TO permission_center;
+```
+
+## 3. 创建当前及未来业务表
+
+用 `permission_center` 用户连接 `permission_center` 数据库，然后执行第 7 节完整 DDL。该用户是数据库和 `public` schema 的 owner，其创建的当前及未来表、索引、序列和函数自动归 `permission_center` 所有，不需要额外执行 `GRANT`。
+
+以后新增业务表也继续使用 `permission_center` 用户执行，因此新对象自动归该用户所有，这就是“后续新表自动拥有权限”的实现方式。如果未来正式改用其他建表角色，必须先单独设计并补充该创建者的 `ALTER DEFAULT PRIVILEGES`；当前不预设第二个账号。
+
+如果已有表是用 `postgres` 或其他角色创建的，仅执行 `GRANT ALL` 不能转移 owner，也可能导致后续结构升级失败。先核对对象 owner，再为已有库编写明确的 owner 转移或升级 SQL，不在新库初始化脚本中混入这类修复。新增其他 schema 时也必须单独设置，不能假设 `public` 的权限会自动继承。
 
 ## 4. 应用连接配置
 
@@ -149,9 +117,9 @@ host=database.example.internal port=5432 user=permission_center password=<secret
 
 ## 7. 七张表的完整 DDL（手动执行）
 
-以下是七张业务表唯一的权威 DDL 代码块。连接已经初始化好的业务数据库后，以确定的 `migration_owner` 执行整个事务；不包含建库、密码、真实用户或初始管理员数据。不得由应用启动自动执行。本节不使用 `IF NOT EXISTS`：表已存在时中止，先比对结构并编写单独审核的升级变更，避免把不兼容结构误判为成功。
+以下是七张业务表唯一的权威 DDL 代码块。使用 `permission_center` 用户连接同名数据库后执行整个事务；不包含建库、密码、真实用户或初始管理员数据。不得由应用启动自动执行。本节不使用 `IF NOT EXISTS`：表已存在时中止，先比对结构并编写单独审核的升级变更，避免把不兼容结构误判为成功。
 
-第 2、3 节的原有建库授权 SQL 予以保留；其中应用角色拥有数据库/schema 且授予广泛对象权限，属于现有初始化基线，**不提供数据库强制的“只能追加审计”保证**。本期通过封闭 Repository 和接口限制审计为 INSERT/SELECT；如需数据库级不可修改保证，应另行审核分离对象 owner、运行角色及审计表授权的方案，不能仅凭表名宣称已实现。
+第 2、3 节使应用用户拥有数据库/schema 及其创建的业务对象，属于当前初始化基线，**不提供数据库强制的“只能追加审计”保证**。本期通过封闭 Repository 和接口限制审计为 INSERT/SELECT；如需数据库级不可修改保证，应另行审核分离对象 owner、运行角色及审计表授权的方案，不能仅凭表名宣称已实现。
 
 ```sql
 BEGIN;
