@@ -412,6 +412,14 @@ func (s *Service) changeUser(ctx context.Context, id, target string, version int
 func (s *Service) Tenants(ctx context.Context, id string, f m.Filter) (m.Page[m.Tenant], error) {
 	return read(ctx, s, id, func(tx m.Tx, u m.User) (m.Page[m.Tenant], error) { return tx.Tenants(f, userScope(u)) })
 }
+
+// MyTenants lists actual active tenant-administrator memberships, even for a
+// platform administrator. Platform authority alone never grants token issuance.
+func (s *Service) MyTenants(ctx context.Context, id string, f m.Filter) (m.Page[m.Tenant], error) {
+	return read(ctx, s, id, func(tx m.Tx, u m.User) (m.Page[m.Tenant], error) {
+		return tx.Tenants(f, m.Scope{UserID: u.ID})
+	})
+}
 func (s *Service) Tenant(ctx context.Context, id, target string) (m.Tenant, error) {
 	return read(ctx, s, id, func(tx m.Tx, u m.User) (m.Tenant, error) { return tenantScope(tx, u, target, false) })
 }

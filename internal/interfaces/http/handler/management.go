@@ -345,6 +345,7 @@ type credentialRequest struct {
 }
 type listRequest struct {
 	page.Request
+	Username     string     `json:"username" binding:"max=64"`
 	Code         string     `json:"code" binding:"max=64"`
 	Name         string     `json:"name" binding:"max=128"`
 	Status       string     `json:"status" binding:"omitempty,oneof=active disabled revoked"`
@@ -360,13 +361,14 @@ type listRequest struct {
 }
 
 func (q listRequest) filter() m.Filter {
-	return m.Filter{PageNum: q.PageNum, PageSize: q.PageSize, Code: q.Code, Name: q.Name, Status: q.Status, PlatformRole: q.PlatformRole, TenantID: q.TenantID, SystemID: q.SystemID, ActorID: q.ActorID, Action: q.Action, Result: q.Result, RequestID: q.RequestID, From: q.From, To: q.To}
+	return m.Filter{PageNum: q.PageNum, PageSize: q.PageSize, Code: q.Code, Name: q.Name, Username: q.Username, Status: q.Status, PlatformRole: q.PlatformRole, TenantID: q.TenantID, SystemID: q.SystemID, ActorID: q.ActorID, Action: q.Action, Result: q.Result, RequestID: q.RequestID, From: q.From, To: q.To}
 }
 
 // Register exposes explicit management use cases; binding and response policy is
 // shared while each route retains its own command and authorization behavior.
 func (h *Management) Register(r *gin.RouterGroup) {
 	r.GET("/auth/me", h.Me)
+	r.POST("/auth/tenant/list", h.MyTenants)
 	r.POST("/user/list", h.UserList)
 	r.POST("/user/detail", h.UserDetail)
 	r.POST("/user/create", h.UserCreate)
@@ -388,6 +390,7 @@ func (h *Management) Register(r *gin.RouterGroup) {
 	r.POST("/system/setStatus", h.SystemSetStatus)
 	r.POST("/system/account/setStatus", h.SystemAccountSetStatus)
 	r.POST("/system/credential/list", h.SystemCredentialList)
+	r.POST("/system/credential/checkCreate", h.CheckCredentialCreation)
 	r.POST("/system/credential/create", h.SystemCredentialCreate)
 	r.POST("/system/credential/revoke", h.SystemCredentialRevoke)
 	r.POST("/audit/list", h.AuditList)

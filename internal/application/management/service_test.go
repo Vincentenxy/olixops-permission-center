@@ -27,6 +27,9 @@ type testTx struct {
 	memberErr    error
 	auditErr     error
 	activeTokens int64
+	countErr     error
+	filter       m.Filter
+	scope        m.Scope
 	events       []m.Audit
 }
 
@@ -41,8 +44,13 @@ func (t *testTx) Tenant(string) (m.Tenant, error)             { return t.t, nil 
 func (t *testTx) System(string) (m.System, error)             { return t.s, nil }
 func (t *testTx) Account(string) (m.Account, error)           { return t.a, nil }
 func (t *testTx) Membership(string, string) (m.Member, error) { return t.member, t.memberErr }
-func (t *testTx) ActiveCredentialCount(string) (int64, error) { return t.activeTokens, nil }
-func (t *testTx) CreateCredential(c m.Credential) error       { t.credential = c; return nil }
+func (t *testTx) ActiveCredentialCount(string) (int64, error) { return t.activeTokens, t.countErr }
+func (t *testTx) SystemAccount(string) (m.Account, error)     { return t.a, nil }
+func (t *testTx) Tenants(f m.Filter, scope m.Scope) (m.Page[m.Tenant], error) {
+	t.filter, t.scope = f, scope
+	return m.Page[m.Tenant]{List: []m.Tenant{}}, nil
+}
+func (t *testTx) CreateCredential(c m.Credential) error { t.credential = c; return nil }
 func (t *testTx) CredentialByKeyID(key string) (m.Credential, error) {
 	if key != t.credential.KeyID {
 		return m.Credential{}, m.ErrNotFound

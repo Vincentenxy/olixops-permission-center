@@ -130,6 +130,96 @@ paths:
           "$ref": "#/components/responses/HTTP409"
         "503":
           "$ref": "#/components/responses/HTTP503"
+  "/api/v1/auth/tenant/list":
+    post:
+      summary: "当前账号实际管理的有效租户，超管也按成员关系过滤"
+      operationId: "my_tenants"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/MyTenantsRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/TenantPage"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
+  "/api/v1/system/credential/checkCreate":
+    post:
+      summary: "查询固定 Token 当前签发资格；不创建或预留凭据，签发时重新校验"
+      operationId: "credential_check_create"
+      security:
+        - BearerAuth: []
+      parameters:
+        - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/SystemIDRequest"
+      responses:
+        "200":
+          description: "成功 code=0；普通业务拒绝可能返回 HTTP200/code=-1。"
+          content:
+            "application/json":
+              schema:
+                oneOf:
+                  - type: "object"
+                    additionalProperties: false
+                    required: ["code","msg","data"]
+                    properties:
+                      code:
+                        type: "integer"
+                        enum: [0]
+                      msg:
+                        type: "string"
+                      data:
+                        "$ref": "#/components/schemas/CredentialCreationCheck"
+                  - "$ref": "#/components/schemas/BusinessError"
+        "400":
+          "$ref": "#/components/responses/HTTP400"
+        "401":
+          "$ref": "#/components/responses/HTTP401"
+        "403":
+          "$ref": "#/components/responses/HTTP403"
+        "404":
+          "$ref": "#/components/responses/HTTP404"
+        "409":
+          "$ref": "#/components/responses/HTTP409"
+        "503":
+          "$ref": "#/components/responses/HTTP503"
   "/api/v1/systemAccess/me":
     get:
       summary: "由固定系统 Token 推导可信租户/系统/账号范围"
@@ -1845,6 +1935,10 @@ components:
           type: "integer"
           default: 20
           description: "非正数按20处理，大于200归一化为200"
+        username:
+          type: "string"
+          maxLength: 64
+          description: "user/list 与 tenant/member/list 的登录账号模糊筛选，不区分大小写，通配符按字面量处理"
         code:
           type: "string"
           maxLength: 64
@@ -1976,6 +2070,44 @@ components:
         time:
           type: "string"
           format: "date-time"
+    MyTenantsRequest:
+      type: "object"
+      additionalProperties: false
+      properties:
+        pageNum:
+          type: "integer"
+          default: 1
+          description: "非正数按1处理"
+        pageSize:
+          type: "integer"
+          default: 20
+          description: "非正数按20处理，大于200归一化为200"
+        code:
+          type: "string"
+          maxLength: 64
+        name:
+          type: "string"
+          maxLength: 128
+    SystemIDRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["systemId"]
+      properties:
+        systemId:
+          type: "string"
+          format: "uuid"
+    CredentialCreationCheck:
+      type: "object"
+      additionalProperties: false
+      required: ["allowed", "reason"]
+      description: "仅为当前快照的管理操作资格提示，不是业务资源权限判断，也不是签发许可。不可见系统返回404，依赖失败保留服务错误。"
+      properties:
+        allowed:
+          type: "boolean"
+        reason:
+          type: "string"
+          enum: ["", "tenantDisabled", "tenantAdminRequired", "systemDisabled", "accountDisabled", "activeCredentialExists"]
+          description: "允许时为空；阻止原因按枚举顺序检查，多个条件不满足时只返回第一个。"
   responses:
     HTTP400:
       description: "Bad Request"

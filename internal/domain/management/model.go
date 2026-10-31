@@ -80,9 +80,9 @@ type CredentialChain struct {
 	Tenant     Tenant
 }
 type Filter struct {
-	PageNum, PageSize                                                                        int
-	Code, Name, Status, PlatformRole, TenantID, SystemID, ActorID, Action, Result, RequestID string
-	From, To                                                                                 *time.Time
+	PageNum, PageSize                                                                                  int
+	Code, Name, Username, Status, PlatformRole, TenantID, SystemID, ActorID, Action, Result, RequestID string
+	From, To                                                                                           *time.Time
 }
 
 // Scope is derived from an active local user, never directly from request fields.

@@ -17,6 +17,7 @@
 | 系统与账号 | 每系统唯一租户、每系统一个调用账号，创建时同事务完成 |
 | 固定系统 Token | 每账号最多一把有效 Token，无自动到期/轮换；只有所属租户有效管理员可签发 |
 | 管理审计 | 变更和成功审计同事务，失败保留可信操作者；范围过滤、分页与详情 |
+| 管理页面配套 | 当前账号实际管理租户分页、Token 签发资格查询、用户/成员按登录账号搜索；接入步骤见 [管理页面后端接入](design/management-pages.md) |
 | 系统身份探测 | HTTP `GET /api/v1/systemAccess/me`，验证 Token 及完整上层状态 |
 | gRPC | 标准 health 与自定义 Healthy；尚无系统身份业务 RPC |
 | SpiceDB | 官方 authzed-go 客户端，可选连接、TLS、超时、启动健康检查；业务授权未实现 |
@@ -36,7 +37,7 @@ olixops-permission-center/
 ├── cmd/bootstrap-admin/              # 空库显式初始化超管
 ├── cmd/generate-keys/                # 一次生成持久 RSA 密钥，拒绝覆盖
 ├── config/config.example.yaml       # 安全配置模板
-├── api/openapi.yaml                 # 29 条 HTTP 路由的 OpenAPI 3 契约
+├── api/openapi.yaml                 # 31 条 HTTP 路由的 OpenAPI 3 契约
 ├── api/proto/ / api/gen/             # proto 和生成代码
 ├── design/
 │   ├── database.md                  # 七表 DDL、建库/授权
@@ -146,6 +147,8 @@ macOS/Linux 使用同一 Go 命令，可将文件内容通过环境变量注入�
 | GET /api/v1/pub/healthz | 公开健康检查 |
 | POST /api/v1/pub/auth/login | 用户名密码 → accessToken、expiresAt、user |
 | GET /api/v1/auth/me | JWT + 实时用户状态 → userId、username、name、platformRole |
+| POST /api/v1/auth/tenant/list | 当前账号具有有效管理员关联的有效租户，超管也按关联过滤 |
+| POST /api/v1/system/credential/checkCreate | 查询当前固定 Token 签发资格和阻止原因，不产生写入 |
 | POST /api/v1/tenant/*、/user/* | 租户、后台用户、成员管理 |
 | POST /api/v1/system/* | 系统、账号、固定 Token 管理 |
 | POST /api/v1/audit/list、/audit/detail | 范围过滤的审计查询 |
@@ -203,4 +206,4 @@ docker build -t olixops-permission-center:local .
 docker run --rm -p 8080:8080 -p 9090:9090 olixops-permission-center:local
 ```
 
-多阶段镜像只含独立二进制与安全模板，真实配置通过环境或文件挂载。Docker Engine 当前不可用，本次未运行镜像构建或 Kubernetes 部署；未修改业务数据库。前端 Docker/Nginx 模板在前端仓库，正式上线时配置同源 /api 代理、HTTPS 和可信代理范围。
+多阶段镜像只含独立二进制与安全模板，真实配置通过环境或文件挂载。首次交付未运行镜像构建或 Kubernetes 部署。2026-10-30 本轮使用 Docker 中的独立 PostgreSQL 18.4 测试容器，真实 HTTP 集成回归通过；测试随机 schema 已清理。未构建应用镜像、未部署集群、未修改业务数据库。前端 Docker/Nginx 模板在前端仓库，正式上线时配置同源 /api 代理、HTTPS 和可信代理范围。

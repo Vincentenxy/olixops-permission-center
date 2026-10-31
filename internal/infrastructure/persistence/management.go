@@ -128,6 +128,9 @@ func (t *managementTx) UserByUsername(username string) (v m.User, e error) {
 }
 func (t *managementTx) Users(f m.Filter) (m.Page[m.User], error) {
 	q := t.db.Table("user_info").Select("*, display_name AS name").Where("is_deleted = false")
+	if f.Username != "" {
+		q = q.Where("username ILIKE ?", "%"+escapeLike(f.Username)+"%")
+	}
 	if f.Name != "" {
 		q = q.Where("display_name ILIKE ?", "%"+escapeLike(f.Name)+"%")
 	}
@@ -177,6 +180,9 @@ func (t *managementTx) Membership(tenant, user string) (v m.Member, e error) {
 }
 func (t *managementTx) Members(f m.Filter) (m.Page[m.Member], error) {
 	q := t.db.Table("tenant_member_info tm").Select("tm.*, ui.username AS user_name, ui.display_name AS name").Joins("JOIN user_info ui ON ui.id = tm.user_id AND ui.is_deleted = false").Where("tm.tenant_id = ? AND tm.is_deleted = false", f.TenantID)
+	if f.Username != "" {
+		q = q.Where("ui.username ILIKE ?", "%"+escapeLike(f.Username)+"%")
+	}
 	if f.Name != "" {
 		q = q.Where("ui.display_name ILIKE ?", "%"+escapeLike(f.Name)+"%")
 	}

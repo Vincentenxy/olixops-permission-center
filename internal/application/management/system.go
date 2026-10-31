@@ -142,22 +142,11 @@ func (s *Service) CreateCredential(ctx context.Context, id, accountID, name stri
 		if e != nil {
 			return
 		}
-		if _, e = tenantScope(tx, u, tenant.ID, true); e != nil {
-			if errors.Is(e, m.ErrNotFound) {
-				e = m.ErrForbidden
-			}
-			return
-		}
-		if tenant.Status != m.Active || sys.Status != m.Active || account.Status != m.Active {
-			e = m.ErrForbidden
-			return
-		}
-		count, e := tx.ActiveCredentialCount(account.ID)
+		check, e := checkCredentialCreation(tx, u, sys, tenant, account)
 		if e != nil {
 			return
 		}
-		if count != 0 {
-			e = m.ErrActiveCredential
+		if e = check.creationError(); e != nil {
 			return
 		}
 		issued, e := credential.Generate()

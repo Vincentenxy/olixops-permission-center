@@ -56,3 +56,7 @@
 已将关键数据库/HTTP 场景固化为 `internal/integration/management_test.go`，原生 PostgreSQL 全部通过，包含两个超管并发互相降权/停用后的防锁死。前端 `pnpm check` 通过 34 项测试、lint、类型检查与构建；后端全量测试（含真实数据库集成）与 vet 通过。
 
 前后端各自维护开发规范和锁文件；前端随仓库保存固定版本设计 skills、许可证及相对路径工作区，换电脑继续开发见 [workspace.md](workspace.md)。
+
+## 管理页面后端准备（2026-10-30）
+
+已补充当前账号实际管理的租户分页、系统固定 Token 签发资格查询，以及用户/管理员关联的登录账号筛选；共 31 条 HTTP 路由。无数据库结构变更，签发资格查询与实际写事务共用规则。页面接入清单见 [management-pages.md](management-pages.md)。F2 管理页面仍待前端实现；该后端增量不代表管理页面已完成。

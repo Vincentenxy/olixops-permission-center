@@ -25,7 +25,7 @@ func TestPaginationAndStrictBinding(t *testing.T) {
 			r.POST("/list", func(c *gin.Context) {
 				c.Request = c.Request.WithContext(userctx.WithContext(c.Request.Context(), userctx.User{UserID: "test"}))
 				c.Next()
-			}, post(func(_ context.Context, _ string, q listRequest) (m.Page[m.Tenant], error) {
+			}, post(func(_ context.Context, _ string, q myTenantsRequest) (m.Page[m.Tenant], error) {
 				called = true
 				if q.PageNum != tc.num || q.PageSize != tc.size {
 					t.Fatalf("application received %d/%d", q.PageNum, q.PageSize)
