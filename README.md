@@ -23,7 +23,7 @@
 | 系统身份探测 | HTTP `GET /api/v1/systemAccess/me`，验证 Token 及完整上层状态 |
 | gRPC | 标准 health 与自定义 Healthy；尚无系统身份业务 RPC |
 | SpiceDB | 官方 authzed-go 客户端，可选连接、TLS、超时、启动健康检查；业务授权未实现 |
-| 独立前端 | [olixops-permission-center-web](https://github.com/Vincentenxy/olixops-permission-center-web)：登录、身份恢复、退出、账户概览已联调；完整管理页面后续开发 |
+| 独立前端 | [olixops-permission-center-web](https://github.com/Vincentenxy/olixops-permission-center-web)：登录、身份恢复、租户/管理员/系统/固定 Token/审计管理页面；真实环境管理流待部署联调 |
 
 `permission.v1.PermissionCenterService/CheckPermission` 当前只有 proto/生成代码，未注册服务。没有用户注册、公开找回密码、refresh token、跨设备会话撤销或自动建表；这些不能从目录或文档占位推断为已实现。
 
