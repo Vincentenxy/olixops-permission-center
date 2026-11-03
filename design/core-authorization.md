@@ -92,9 +92,12 @@ definition authz/system {
     relation tenant: authz/tenant
 }
 
-definition authz/subject {}
+definition authz/subject {
+    relation system: authz/system
+}
 
-definition authz/group {
+definition authz/role {
+    relation system: authz/system
     relation member: authz/subject
 }
 
@@ -103,15 +106,16 @@ definition authz/resource {
 }
 
 definition authz/access {
+    relation system: authz/system
     relation resource: authz/resource
-    relation grantee: authz/subject | authz/group#member
+    relation grantee: authz/subject | authz/role#member
     relation inherits: authz/access
 
     permission allowed = grantee + inherits->allowed
 }
 ```
 
-角色使用 `group#member` 表达成员集合，不额外复制一套角色授权算法。`access` 是内部资源动作对象，对外 SDK 仍使用业务资源类型、资源 ID 与动作名。
+角色使用 `role#member` 表达成员集合，不额外复制一套角色授权算法。`access` 是内部资源动作对象，对外 SDK 仍使用业务资源类型、资源 ID 与动作名。`subject`、`role`、`resource` 和 `access` 都显式记录 `system` 关系，便于诊断和核对归属；`allowed` 不沿该关系推导，写入隔离仍由权限中心应用层强制保证。
 
 例如工单 `T-1001` 的 `approve`：
 
@@ -121,18 +125,37 @@ definition authz/access {
   (system-A, user, employee-42)      -> subject-A
 
 授权关系：
-  authz/group:approver-A#member@authz/subject:subject-A
-  authz/access:access-A#grantee@authz/group:approver-A#member
+  authz/role:approver-A#member@authz/subject:subject-A
+  authz/access:access-A#grantee@authz/role:approver-A#member
 
 检查：
   CheckPermission(authz/access:access-A, allowed, authz/subject:subject-A)
 ```
 
-示例名称仅用于阅读，实际 ID 由服务端映射。`access.resource` 和 `resource.system` 用于归属表达，并未参与 `allowed` 公式；隔离必须依赖封闭写入口与应用层归属校验。
+示例名称仅用于阅读，实际 ID 由服务端映射。权限中心将 `(systemId, subjectType, externalId)`、`(systemId, resourceType, externalId)` 和 `(resourceId, actionId)` 分别映射到不可由客户端指定的内部 UUID；外部 ID 不直接拼装成 SpiceDB 对象 ID。
 
-每个资源动作至多一个继承目标由应用层保证。资源登记时，为声明启用的动作建立所需对象与继承边；不能假定尚不存在的动作对象会自动继承权限。动作数量、资源规模和重建任务需要配额及有界执行。
+### 4.3 资源类型全量授权
 
-### 4.3 角色、动作与继承的语义
+“允许用户访问某系统下某一类资源的全部实例”使用**类型范围资源**实现，不要求给现有每个资源重复写一条用户授权：
+
+1. 每个 `(systemId, resourceType)` 创建一个受控的 scope 资源，例如 `folder` 类型范围。
+2. 为 scope 上启用的每个动作创建范围 `access`，例如 `folder/*/read`。
+3. 给用户或角色授予范围 `access` 的 `grantee`。
+4. 每个具体资源的同动作 `access` 显式通过 `inherits` 指向该范围 `access`。
+5. 新登记资源时，在同一个可靠操作流程内补齐声明动作的继承边；停用类型或动作时阻止新增并按任务清理关系。
+
+例如 `user-a` 获得系统 A 下全部 folder 的读取权：
+
+```text
+authz/access:folder-scope-read-A#grantee@authz/subject:user-a-A
+authz/access:folder-001-read-A#inherits@authz/access:folder-scope-read-A
+```
+
+该授权只覆盖明确继承该 scope 的 `read` 动作，不自动覆盖 `update`，也不跨系统。具体资源的父子继承仍是另一条显式 `inherits` 关系；首版限制为同系统、同资源类型、同动作的单父有界链，禁止循环。
+
+每个资源动作至多一个业务父级继承目标，另可有一个类型范围继承目标，二者由应用层按不同关系来源管理。资源登记时，为声明启用的动作建立所需对象与继承边；不能假定尚不存在的动作对象会自动继承权限。动作数量、资源规模和重建任务需要配额及有界执行。
+
+### 4.4 角色、动作与继承的语义
 
 - 直接授权：给某人某工单的 `read`。
 - 角色授权：给 `approver` 角色某工单的 `approve`，再管理角色成员。
@@ -183,14 +206,18 @@ SSO 的 issuer/audience、协议、主体稳定性、客户端范围映射尚未
 | 能力 | HTTP 建议 | 对应共享用例/RPC |
 |---|---|---|
 | 判断指定业务主体 | POST `/api/v1/authorization/check` | CheckPermission |
-| 判断当前 SSO 用户 | POST `/api/v1/authorization/checkSelf` | CheckSelfPermission |
 | 批量判断 | POST `/api/v1/authorization/checkBulk` | CheckBulkPermissions |
-| 查询可访问资源 | POST `/api/v1/authorization/resource/list` | ListAccessibleResources |
-| 资源登记、主体登记 | 各自资源前缀下的 register | RegisterResource / RegisterSubject |
-| 动作、角色与成员配置 | 各自资源前缀下的配置接口 | 配置用例，按管理能力开放 |
+| 主体登记 | POST `/api/v1/authorization/subject/register` | RegisterSubject |
+| 资源类型登记 | POST `/api/v1/authorization/resourceType/create` | CreateResourceType |
+| 动作登记 | POST `/api/v1/authorization/action/create` | CreateAction |
+| 资源登记 | POST `/api/v1/authorization/resource/register` | RegisterResource |
+| 角色与成员配置 | 各自资源前缀下的配置接口 | 配置用例，仅管理员开放 |
 | 授权、撤权 | POST `/api/v1/authorization/grant`、`revoke` | GrantPermission / RevokePermission |
+| 查询异步操作结果 | POST `/api/v1/authorization/operation/detail` | GetOperation |
 
-同名用例由 HTTP/gRPC 共用，分别适配管理员、系统调用账号和 SSO 用户身份；认证方式按路由/方法明确选择，禁止认证失败后降级回退。批量接口首版限制单系统、总项数和执行时间，不接受任意原始 tuple。
+同名用例由 HTTP/gRPC 共用，认证方式按路由/方法明确选择，禁止认证失败后降级回退。首版系统固定 Token 只开放本系统 `check/checkBulk` 和必要的登记能力；授权、撤权、角色和范围配置只允许所属租户的有效管理员操作。是否把登记能力也限制到管理员，在接口契约评审时最终确认。批量接口首版限制单系统、总项数和执行时间，不接受任意原始 tuple。
+
+`checkSelf`、可访问资源列表、浏览器 SSO、系统 Token 自助授权、跨系统授权、显式 deny、嵌套角色和任意策略表达式均不纳入首个服务端闭环。现有 `permission.proto` 的 `user_id/resource/action` 只是占位消息，正式实现前必须替换成类型化 subject/resource/action；systemId 从认证上下文取得，不能相信请求体。
 
 服务端查询示意：
 
@@ -207,6 +234,16 @@ systemId/tenantId 由系统认证上下文确定。浏览器 `checkSelf` 不接�
 业务判断成功且无权时返回 `allowed=false`。HTTP 使用现有统一外壳，gRPC 使用正式响应消息。身份无效、调用方无权操作该范围、参数错误、依赖故障分别映射真实协议错误；超时/SpiceDB 故障不能伪装成成功的 `allowed=false`，SDK 遇错误必须拒绝执行受保护业务。
 
 未登记或已停用的主体/资源不允许访问；未知动作作为契约错误处理。外部错误不泄露其他系统对象是否存在。返回的一致性标记由服务端包装，不直接暴露原始 SDK 结构或将其当作授权凭据。
+
+### 7.1 权限判断执行顺序
+
+1. 通过专用认证入口解析系统固定 Token，实时确认凭据、账号、系统和租户均有效，并得到可信 `systemId`。
+2. 使用 `systemId + subjectType + externalId`、`systemId + resourceType + externalId` 和动作编码查找目录映射；所有对象必须有效且归属同一系统。
+3. 读取系统授权水位与门禁状态；存在待执行或失败未恢复的关系操作时返回依赖不可用，不调用业务方数据接口。
+4. 将内部 subject UUID 和 access UUID 传给 SpiceDB `CheckPermission(..., allowed, ...)`。
+5. SpiceDB 明确返回无权限时才返回成功响应 `allowed=false`；超时、不可用、模型不匹配和目录异常都返回协议级服务错误，调用方必须 fail closed。
+
+HTTP 与 gRPC 共享以上应用用例。Handler、gRPC service 和 SpiceDB adapter 都不得各自实现一套对象映射或状态判断。
 
 ## 8. 查询、列表与一致性
 
@@ -226,7 +263,27 @@ SpiceDB 支持 LookupResources 和批量判断，详见 [官方列表保护说�
 
 外部系统业务列表由其后端把权限资源 ID 范围与自身业务查询结合；权限中心不能替外部数据库计算全部业务过滤条件下的 total。批量判断适合已知候选资源，不自动解决精确分页总数问题。
 
-## 9. 管理目录与 SpiceDB 的可靠写入
+## 9. PostgreSQL 管理目录草案
+
+第二部分预计需要以下 9 张表；这是职责拆分清单，不是已审批 DDL，字段、唯一键、索引和最终合并方式必须先补充到 [database.md](database.md) 并由 Owner 确认：
+
+| 候选表 | 职责 |
+|---|---|
+| `authorization_subject_info` | 系统范围内的主体类型、外部稳定 ID、内部 UUID 和状态 |
+| `authorization_resource_type_info` | 系统可使用的资源类型和范围策略 |
+| `authorization_action_info` | 资源类型允许的动作编码和状态 |
+| `authorization_resource_info` | 具体资源、类型范围资源、外部 ID、父资源及内部 UUID |
+| `authorization_role_info` | 系统内业务角色定义，不复用后台平台角色 |
+| `authorization_access_info` | 资源与动作到 SpiceDB access UUID 的稳定映射 |
+| `authorization_relation_info` | 管理端声明的授权、角色成员和继承来源及生效状态 |
+| `authorization_operation_info` | 幂等关系写任务、顺序号、重试和最终结果 |
+| `authorization_system_state_info` | 每系统写入序列、门禁状态和最新生效 ZedToken 水位 |
+
+现有 `authorization_audit_log` 继续记录成功或失败的管理操作，不新增重复审计表。`authorization_relation_info` 用于管理、展示来源和驱动任务，不得在 SpiceDB 可用时绕过 SpiceDB 直接计算允许结果；SpiceDB 仍是已生效关系与权限判断的权威数据面。
+
+候选表全部遵循无外键、软删除、系统归属不可换绑和表设计先审批规则。操作任务若按只追加历史设计，可按审批结论只保留创建字段；在 SQL 审批前不创建 model、repository、handler 或 migration。
+
+## 10. 管理目录与 SpiceDB 的可靠写入
 
 PostgreSQL 保存主体/资源/动作/角色定义、生命周期状态和审计；SpiceDB 保存已生效的成员关系、授权及继承关系。不在 PostgreSQL 另维护一份完整有效授权镜像。
 
@@ -244,21 +301,27 @@ PostgreSQL 保存主体/资源/动作/角色定义、生命周期状态和审计
 
 新增数据类别至少涉及目录、身份映射、动作配置、角色定义、继承配置元数据及执行任务/水位。具体合并拆分、字段和索引仍须先写入 [database.md](database.md) 并取得 Owner 确认，随后才能编写关联 model/repository/handler。本轮不增加 DDL。
 
-## 10. 分阶段交付与验收
+## 11. 分阶段交付与验收
 
 建议交付顺序：
 
-1. **模型验证**：隔离本地 SpiceDB 校验 Schema、直接授权、角色与继承，并对比原生 Schema/通用动作模型的列表与批量性能；不使用现有集群做试验。
-2. **契约和目录设计**：定稿 OpenAPI/proto、数据库增量 SQL、任务恢复与鉴权水位；按仓库要求先审表。
-3. **服务端闭环**：系统认证接 HTTP/gRPC，共享登记、授权/撤权、Check/Bulk/List 用例，实现可靠写入和审计；先用服务端 SDK 场景验收。
-4. **统一管理页面**：资源类型与动作、主体、角色成员、资源授权、继承范围及操作状态；按独立前端规范实施。
-5. **自用接入与浏览器 SSO**：将已确认的系统 member 策略做成自用模板；取得 SSO 契约后实现 checkSelf；逐个后端数据入口接入，再交付 SDK。
+1. **模型验证**：隔离本地 SpiceDB 编译 Schema，验证直接授权、角色、类型范围和父资源继承；对 check/bulk/lookup 做目标规模基准，不使用现有集群做试验。
+2. **表设计审批**：把上述候选表完善为完整增量 SQL、索引、状态机和恢复规则，写入 `database.md`，取得 Owner 明确确认后再写关联代码。
+3. **契约定稿**：替换占位 proto，同步 OpenAPI，固定系统 Token 的能力边界、错误语义、幂等键和批量上限。
+4. **可靠写入基础**：实现 operation worker、每系统顺序执行、TOUCH/DELETE、门禁、恢复、ZedToken 水位和审计。
+5. **服务端最小闭环**：HTTP/gRPC 共用 subject/resource/action 登记、grant/revoke、operation detail、check/checkBulk 用例；先用服务端 SDK 场景验收。
+6. **角色与范围授权**：在最小闭环稳定后加入角色成员、类型范围和父资源继承，验证多来源撤权语义。
+7. **统一管理页面**：资源类型与动作、主体、角色成员、资源授权、继承范围及操作状态；按独立前端规范实施。
+8. **后续能力**：压测后评审 LookupResources、浏览器 SSO/checkSelf、自用接入和 SDK，不提前承诺进首版。
 
 必要验收场景：
 
 | 场景 | 预期 |
 |---|---|
 | 相同外部 userId/resourceId 出现在不同系统 | 身份与授权互不串用 |
+| 系统 A 给 user-a 授予 folder-1/read，HTTP 与 gRPC 检查 | 均允许，且返回语义一致 |
+| 撤销上述唯一来源并等待操作生效，再由另一客户端检查 | 均明确返回 `allowed=false` |
+| 系统 A 给 user-a 授予 folder 类型范围 read | 已登记且继承该范围的 folder 允许，其他类型和动作拒绝 |
 | member 读取已加入系统资源、读取其他系统资源 | 前者按自用继承策略允许，后者拒绝 |
 | 只获得 read，尝试 update/approve | 拒绝 |
 | 无继承配置、只有资源归属 | 不自动获得权限 |
@@ -271,8 +334,8 @@ PostgreSQL 保存主体/资源/动作/角色定义、生命周期状态和审计
 | SpiceDB 超时、目录不可读、任务异常、成功审计失败 | 不放行业务，区分故障与正常无权 |
 | 授权列表与计数；大结果超限 | 同一范围；不返回截断的伪 total |
 
-## 11. 当前验证状态与后续输入
+## 12. 当前验证状态与后续输入
 
 本轮是代码核对与文档设计，未改 Go/前端代码、未建表、未编译上述 Schema、未执行真实 SpiceDB 模型测试、未上传集群关系。
 
-待确认事项集中维护在 [handoff.md](handoff.md)，包括通用模型取舍、是否委托接入系统维护授权、规模指标，以及 SSO 契约。已有 Playground Schema 需在受控发布前核对兼容性；本草案不授权覆盖现有 Schema。
+本设计建议评审时一次确认以下首版基线：采用通用 access 模型；租户管理员负责 grant/revoke；系统 Token 默认只查询、不自助授权；首版使用 `fully_consistent`，压测后才优化一致性；9 张候选表需另行完成 SQL 评审。待确认事项集中维护在 [handoff.md](handoff.md)，包括规模指标和 SSO 契约。已有 Playground Schema 需在受控发布前核对兼容性；本草案不授权覆盖现有 Schema。
