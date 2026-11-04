@@ -1,0 +1,27 @@
+definition authz/tenant {}
+
+definition authz/system {
+    relation tenant: authz/tenant
+}
+
+definition authz/subject {
+    relation system: authz/system
+}
+
+definition authz/role {
+    relation system: authz/system
+    relation member: authz/subject
+}
+
+definition authz/resource {
+    relation system: authz/system
+}
+
+definition authz/access {
+    relation system: authz/system
+    relation resource: authz/resource
+    relation grantee: authz/subject | authz/role#member
+    relation inherits: authz/access
+
+    permission allowed = grantee + inherits->allowed
+}

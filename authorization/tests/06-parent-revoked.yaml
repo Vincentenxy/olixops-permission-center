@@ -1,0 +1,62 @@
+# Each file is an independent snapshot, not a sequence of live mutations.
+schemaFile: ../schema.zed
+relationships: |-
+  authz/system:a#tenant@authz/tenant:one
+  authz/system:b#tenant@authz/tenant:one
+  authz/system:c#tenant@authz/tenant:two
+  authz/subject:a-alice#system@authz/system:a
+  authz/role:a-reader#system@authz/system:a
+  authz/role:a-reader#member@authz/subject:a-alice
+  authz/resource:a-folder-1#system@authz/system:a
+  authz/access:a-folder-1-read#system@authz/system:a
+  authz/access:a-folder-1-read#resource@authz/resource:a-folder-1
+  authz/subject:b-alice#system@authz/system:b
+  authz/role:b-reader#system@authz/system:b
+  authz/role:b-reader#member@authz/subject:b-alice
+  authz/resource:b-folder-1#system@authz/system:b
+  authz/access:b-folder-1-read#system@authz/system:b
+  authz/access:b-folder-1-read#resource@authz/resource:b-folder-1
+  authz/subject:c-alice#system@authz/system:c
+  authz/role:c-reader#system@authz/system:c
+  authz/role:c-reader#member@authz/subject:c-alice
+  authz/resource:c-folder-1#system@authz/system:c
+  authz/access:c-folder-1-read#system@authz/system:c
+  authz/access:c-folder-1-read#resource@authz/resource:c-folder-1
+  authz/access:a-folder-1-read#grantee@authz/subject:a-alice
+  authz/access:b-folder-1-read#grantee@authz/subject:b-alice
+  authz/access:c-folder-1-read#grantee@authz/subject:c-alice
+  authz/access:a-folder-1-read#grantee@authz/role:a-reader#member
+  authz/access:a-parent-read#system@authz/system:a
+  authz/access:a-folder-1-read#inherits@authz/access:a-parent-read
+  authz/access:a-grandchild-read#inherits@authz/access:a-folder-1-read
+  authz/access:a-folder-scope-read#grantee@authz/subject:a-carol
+  authz/access:a-folder-1-read#inherits@authz/access:a-folder-scope-read
+  authz/access:a-folder-2-read#inherits@authz/access:a-folder-scope-read
+  authz/access:a-folder-new-read#inherits@authz/access:a-folder-scope-read
+  authz/access:a-folder-1-update#system@authz/system:a
+  authz/access:a-folder-1-update#resource@authz/resource:a-folder-1
+  authz/resource:a-unlinked-folder#system@authz/system:a
+  authz/access:a-unlinked-folder-read#system@authz/system:a
+  authz/access:a-unlinked-folder-read#resource@authz/resource:a-unlinked-folder
+  authz/subject:a-bob#system@authz/system:a
+  authz/subject:a-carol#system@authz/system:a
+  authz/resource:a-parent#system@authz/system:a
+  authz/access:a-parent-read#resource@authz/resource:a-parent
+  authz/resource:a-grandchild#system@authz/system:a
+  authz/access:a-grandchild-read#resource@authz/resource:a-grandchild
+  authz/access:a-grandchild-read#system@authz/system:a
+  authz/resource:a-folder-scope#system@authz/system:a
+  authz/access:a-folder-scope-read#resource@authz/resource:a-folder-scope
+  authz/access:a-folder-scope-read#system@authz/system:a
+  authz/resource:a-folder-2#system@authz/system:a
+  authz/access:a-folder-2-read#resource@authz/resource:a-folder-2
+  authz/access:a-folder-2-read#system@authz/system:a
+  authz/resource:a-folder-new#system@authz/system:a
+  authz/access:a-folder-new-read#resource@authz/resource:a-folder-new
+  authz/access:a-folder-new-read#system@authz/system:a
+assertions:
+  assertTrue:
+    - authz/access:a-folder-1-read#allowed@authz/subject:a-carol
+  assertFalse:
+    - authz/access:a-folder-1-read#allowed@authz/subject:a-bob
+    - authz/access:a-grandchild-read#allowed@authz/subject:a-bob

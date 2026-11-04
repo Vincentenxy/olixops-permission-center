@@ -83,37 +83,7 @@ SpiceDB 的 `permission` 在 Schema 中声明；普通关系写入不能直接�
 
 ### 4.2 最小模型草案
 
-下面仅为设计文本，尚未编译验证或写入任何 SpiceDB 服务：
-
-```zed
-definition authz/tenant {}
-
-definition authz/system {
-    relation tenant: authz/tenant
-}
-
-definition authz/subject {
-    relation system: authz/system
-}
-
-definition authz/role {
-    relation system: authz/system
-    relation member: authz/subject
-}
-
-definition authz/resource {
-    relation system: authz/system
-}
-
-definition authz/access {
-    relation system: authz/system
-    relation resource: authz/resource
-    relation grantee: authz/subject | authz/role#member
-    relation inherits: authz/access
-
-    permission allowed = grantee + inherits->allowed
-}
-```
+可执行模型统一维护在 [authorization/schema.zed](../authorization/schema.zed)，不在设计文档重复维护 Schema。统一判断公式为 `allowed = grantee + inherits->allowed`。2026-11-05 已通过本地 zed v1.2.1 编译及 37 条断言，测试说明与命令见 [模型验证](../authorization/README.md)；未发布到任何 SpiceDB 服务。
 
 角色使用 `role#member` 表达成员集合，不额外复制一套角色授权算法。`access` 是内部资源动作对象，对外 SDK 仍使用业务资源类型、资源 ID 与动作名。`subject`、`role`、`resource` 和 `access` 都显式记录 `system` 关系，便于诊断和核对归属；`allowed` 不沿该关系推导，写入隔离仍由权限中心应用层强制保证。
 
@@ -336,6 +306,8 @@ PostgreSQL 保存主体/资源/动作/角色定义、生命周期状态和审计
 
 ## 12. 当前验证状态与后续输入
 
-本轮是代码核对与文档设计，未改 Go/前端代码、未建表、未编译上述 Schema、未执行真实 SpiceDB 模型测试、未上传集群关系。
+2026-11-05 已补充独立 Schema、7 组状态快照和 PowerShell 执行脚本；本机 zed v1.2.1 的 Schema 编译、37 条权限断言均通过，警告视为失败。测试覆盖直接/角色/父目录/类型范围授权、跨系统正常数据隔离和撤权后状态；另以允许断言复现非法跨系统/跨动作写入风险，证明当前 Schema 不能代替应用层写入约束。
+
+本轮未改 Go/前端业务代码、未建表、未上传集群关系。快照验证不等于真实服务集成：在线写入和删除、撤权时序与强一致性、并发恢复、应用层非法写入拒绝、循环/深度约束及目标规模压测仍待验证。完整边界见 [模型验证说明](../authorization/README.md)。
 
 本设计建议评审时一次确认以下首版基线：采用通用 access 模型；租户管理员负责 grant/revoke；系统 Token 默认只查询、不自助授权；首版使用 `fully_consistent`，压测后才优化一致性；9 张候选表需另行完成 SQL 评审。待确认事项集中维护在 [handoff.md](handoff.md)，包括规模指标和 SSO 契约。已有 Playground Schema 需在受控发布前核对兼容性；本草案不授权覆盖现有 Schema。

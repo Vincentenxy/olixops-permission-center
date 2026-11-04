@@ -22,7 +22,7 @@
 | 管理页面配套 | 当前账号实际管理租户分页、Token 签发资格查询、用户/成员按登录账号搜索；接入步骤见 [管理页面后端接入](design/management-pages.md) |
 | 系统身份探测 | HTTP `GET /api/v1/systemAccess/me`，验证 Token 及完整上层状态 |
 | gRPC | 标准 health 与自定义 Healthy；尚无系统身份业务 RPC |
-| SpiceDB | 官方 authzed-go 客户端，可选连接、TLS、超时、启动健康检查；业务授权未实现 |
+| SpiceDB | 官方 authzed-go 客户端，可选连接、TLS、超时、启动健康检查；独立权限模型通过本地 37 条断言，业务授权未实现 |
 | 独立前端 | [olixops-permission-center-web](https://github.com/Vincentenxy/olixops-permission-center-web)：登录、身份恢复、租户/管理员/系统/固定 Token/审计管理页面；真实环境管理流待部署联调 |
 
 `permission.v1.PermissionCenterService/CheckPermission` 当前只有 proto/生成代码，未注册服务。没有用户注册、公开找回密码、refresh token、跨设备会话撤销或自动建表；这些不能从目录或文档占位推断为已实现。
@@ -184,6 +184,8 @@ SpiceDB SDK 为官方 [authzed-go](https://github.com/authzed/authzed-go)，版�
 启用后的启动健康检查只验证可达和健康，不证明 PSK 有效、Schema 存在或业务权限正确；进程不会自动导入 Playground 内容或 WriteSchema。第二部分再实现系统隔离的授权模型、关系变更、权限查询及跨 PostgreSQL/SpiceDB 的一致性方案。
 
 ## 构建与验证
+
+SpiceDB 模型验证独立于业务库运行：安装 zed v1.2.1 后执行 `./authorization/validate.ps1`，或通过 `-ZedPath` 指定安装路径。Schema、测试快照、验证结果与已知隔离边界见 [authorization/README.md](authorization/README.md)。该命令不导入数据到现有服务。
 
 ```powershell
 go test ./...
