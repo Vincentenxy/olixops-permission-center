@@ -2,6 +2,51 @@
 
 状态：离线模型已验证，业务授权服务尚未实现。Schema 唯一源码为 [schema.zed](schema.zed)，设计见 [核心授权方案](../design/core-authorization.md)。
 
+## 模型原理与代码阅读
+
+先阅读 Schema，再对照 [01 基线数据](tests/01-baseline.yaml) 的 relationships 和 assertions。Schema 声明规则，relationships 保存具体关系，permission 根据规则计算，不直接存储每个用户的最终布尔结果。
+
+| 类型 | 含义 |
+|---|---|
+| `authz/tenant` | 租户 |
+| `authz/system` | 接入系统，通过 tenant 关系表达归属 |
+| `authz/subject` | 系统内业务主体，与后台管理员分开 |
+| `authz/role` | 系统内业务角色；member 是主体集合 |
+| `authz/resource` | 具体资源或类型范围资源 |
+| `authz/access` | 某个资源的某个动作，统一查询 allowed |
+
+关系的格式为 `类型:ID#关系@主体类型:主体ID`，例如：
+
+```text
+authz/role:a-reader#member@authz/subject:a-alice
+```
+
+表示 a-reader 角色的成员集合包含 a-alice。`authz/` 是类型命名前缀，不是自动租户或系统隔离边界。
+
+access 的 `grantee: authz/subject | authz/role#member` 声明可接受直接主体或角色成员集合；这里的 `|` 是允许的关系目标类型。`permission allowed = grantee + inherits->allowed` 中的 `+` 是集合并集，`->` 沿关系计算目标权限。由 SpiceDB 执行这一公式，Go 层不再另写一套递归权限算法。
+
+直接、角色、目录继承和类型范围授权示例如下，均使用基线测试中的名称：
+
+```text
+# 直接授权 alice 读取 folder-1
+authz/access:a-folder-1-read#grantee@authz/subject:a-alice
+# reader 的成员也可读取 folder-1
+authz/access:a-folder-1-read#grantee@authz/role:a-reader#member
+# folder-1 继承 parent 的 read
+authz/access:a-folder-1-read#inherits@authz/access:a-parent-read
+# carol 获得类型范围 read，folder-1 显式继承范围权限
+authz/access:a-folder-scope-read#grantee@authz/subject:a-carol
+authz/access:a-folder-1-read#inherits@authz/access:a-folder-scope-read
+```
+
+上面是带说明的阅读示例，不能把注释行放进 YAML relationships 字符串；运行测试以仓库实际 YAML 为准。
+
+检查 alice 是否可读 folder-1 时，请求对象是 `authz/access:a-folder-1-read`，permission 是 `allowed`，subject 是 `authz/subject:a-alice`。alice 有直接或角色来源即可通过，bob 可经父目录通过，carol 可经类型范围通过。read 与 update 是不同 access，不会自动互相包含。
+
+正式业务链路尚待实现：系统 Token 验证 → 取得可信 systemId → 查目录并校验对象/状态/归属 → 检查可靠写入门禁 → 映射 UUID → SpiceDB 判断 → 协议响应。示例 ID 不能取代生产映射，客户端不能传入任意内部对象 ID 或原始关系。
+
+采用 access 的原因是允许接入系统登记自己的动作，通常不必每新增动作就发布 Schema。代价是对象数量增加、目录映射和可访问资源列表更复杂。首版不支持任意策略表达式、显式 deny、嵌套角色或跨系统授权。
+
 ## 执行
 
 安装官方 [zed v1.2.1](https://github.com/authzed/zed/releases/tag/v1.2.1)，将其所在目录加入 PATH。仓库不保存平台二进制，不读取本地配置、系统密钥或集群地址。

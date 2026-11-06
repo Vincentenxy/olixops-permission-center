@@ -1,93 +1,172 @@
-# 开发交接与待确认事项
+# 前后端开发交接与待确认事项
 
-更新日期：2026-11-05。本文件是前后端共用的待确认清单；后续 Agent 在此更新状态，不另建重复清单。不确定事项先记录事实、影响、当前处理和所需信息，继续完成不依赖该事项的已授权工作。
+更新日期：2026-11-06。本文件是前后端唯一的交接与待确认清单；两个仓库 README 提供各自的能力索引。后续 Agent 更新本文件，不另建重复状态清单。记录不确定事项时写明事实、影响、当前处理和所需信息，不记录敏感值；继续完成不依赖待确认事项的已授权工作。
 
-## 权限模型离线验证（2026-11-05）
+## 1. 当前结论与阅读顺序
 
-- 新增 [独立验证目录](../authorization/README.md)，Schema 唯一源码、7 组状态快照及跨电脑可运行的 PowerShell 脚本随仓库维护；本机官方 zed v1.2.1 执行 Schema 编译和 37 条断言，全部通过，无需集群凭据。
-- 验证直接授权、角色、多级目录继承、类型范围及新增资源继承、正常关系下跨系统/跨租户拒绝、多来源撤权保留和全部来源移除后拒绝。
-- 特别记录：当前 Schema 可接受非法跨系统 grantee、角色、inherits 和跨动作继承，07 用例故意断言其允许以锁定风险事实。应用层必须封闭写入口并拒绝这些输入；不能将离线模型通过描述为系统隔离防护已完成。
-- 未改业务表或服务端/前端接口，未连接集群。真实 gRPC 写入/DELETE、fully_consistent 跨客户端撤权、并发恢复、循环/深度拒绝和性能仍待后续验证；本机 Docker 引擎当前未运行。
+**管理基础的前后端代码已完成；SpiceDB 核心部分完成方案与离线模型验证，实际授权服务和授权页面未实现。** 管理代码完成、离线模型通过、真实服务联调和生产部署是不同状态。
 
-## 第二部分核心授权设计（2026-11-02）
-
-- 已确认目标是为其他接入系统集中保存授权数据，统一判断主体对资源动作的权限；权限中心自身是首个案例，自用层级不应硬编码成所有系统的固定策略。
-- 已确认自用场景：系统 member 默认读取自己加入系统的全部数据，不能访问其他系统。此结论只约束自用模板，不作为所有外部系统的默认权限。
-- 设计及取舍见 [core-authorization.md](core-authorization.md)，术语见 [CONTEXT.md](../CONTEXT.md)。当前建议为通用资源动作对象、显式/角色授权及可选范围继承；这仍是评审建议，未修改业务代码、数据库或集群 Schema。
-
-| 待确认范围 | 事实与影响 | 当前处理与所需信息 |
+| 仓库 | 地址 | 交接前代码基线 |
 |---|---|---|
-| 通用模型与首版能力 | 动态动作可用通用资源动作对象表达，代价是对象数量和列表反查成本；原生按资源类型编写 Schema 是备选。 | 先按草案评审，随后在隔离环境编译及性能验证；未把该取舍或新增表视为已批准。 |
-| 授权变更委托 | 用户明确要求集中保存管理权限，尚未明确接入方是否直接调用 grant/revoke。 | 建议首版由租户管理员配置，系统密钥默认只获明确的查询/登记能力；如需变更授权，确认可委托主体、资源和动作上限。 |
-| 规模与接入优先级 | 尚无首个外部系统的资源量、动作数、鉴权 QPS、列表大小或同步来源。 | 这些指标决定通用模型、列表上限和一致性方案的性能验收；不影响先完成领域与契约草案。 |
-| 数据库增量与可靠写入 | 现有批准七表没有业务目录或执行任务；PostgreSQL 与 SpiceDB 无共同事务。 | 本轮仅给出职责和恢复方案，下一步把具体 SQL 写入 database.md 供 Owner 审批，审批前不编写相关持久化/接口实现。 |
+| Go 后端 | [olixops-permission-center](https://github.com/Vincentenxy/olixops-permission-center) | `c8fcb80`：模型与测试；之前 `d115bd3`：核心方案，`8514c4e`：管理页面后端增量 |
+| Vue 前端 | [olixops-permission-center-web](https://github.com/Vincentenxy/olixops-permission-center-web) | `4e01488`：完整管理工作台；`cafc3ae`：随项目携带设计规范和 skills |
 
-## 本地效果预览（2026-11-02）
+以上用于定位已完成工作，后续文档提交会推进 main，不要求回退到这些提交。接手先检查两个仓库 Git 状态并同步远程，保留用户已有修改。
 
-- 当前电脑的前端已放在后端同级 `olixops-permission-center-web`。GitHub HTTPS 克隆失败，改由此前只读检查副本克隆，版本为 `6bb7a41`；origin 已指向正式 GitHub 仓库，未声称同步远端最新提交。前端依赖按锁文件安装，源码未改动。
-- 本次已启动真实前端 `http://127.0.0.1:5174`、后端 `http://127.0.0.1:18080` 和 gRPC `127.0.0.1:19090`，避免占用原有 Env Vault 的 5173/9090。前端忽略的 `.env.local` 仅设置本地 API 代理。
-- 使用独立 Docker 容器 `permission-center-preview-20261102`，端口仅绑定 `127.0.0.1:15440`，数据库为 `permission_preview_test`。仅在此新库执行本文档引用的已批准七表 DDL，并离线初始化虚构预览管理员；未连接已有业务数据库。
-- 本次预览配置、RSA 文件、启动辅助程序、PID、日志与截图放在 `/tmp/olixops-permission-preview-20261102`，不提交；登录信息单独放在该目录权限为 0600 的 `login.txt`，本清单不记录敏感值。临时目录清理或进程停止后预览不保证可用。
-- 该预览基于旧前端 `6bb7a41`，真实 Vite 代理下健康、登录、当前用户查询均通过；真实浏览器验证登录到账户概览、刷新恢复、退出回登录，控制台无 error/warn。当前工作树已新增租户/系统/Token/审计页面，但尚未在该旧预览环境完成真实业务流验收；SSO 和核心授权仍未实现。
-- 上述为本地临时预览，不代表生产部署。本节描述本轮仍在运行的进程，文末较早交付中“临时进程已停止”的记录仅适用于早期联调。
+建议阅读顺序：
 
-## 对外接入评估（2026-11-01）
+1. 两个仓库各自的 `AGENTS.md`、README 和本清单。
+2. 后端 [领域上下文](../CONTEXT.md)、[第一部分计划](phase-one-plan.md)、[管理 API](management-api.md) 与 [页面接入契约](management-pages.md)。
+3. 后端 [核心授权方案](core-authorization.md)、[模型原理与验证说明](../authorization/README.md)、[Schema](../authorization/schema.zed) 和测试快照。
+4. 涉及数据时读 [唯一数据库 SQL](database.md)；涉及外部身份时读 [对外认证评估](external-auth-assessment.md)。
+5. 前端 UI 开发前读取前端 `design/DESIGN.md`、`.agents/skills/apple-design/SKILL.md`；组件细节和动画再读 `emil-design-eng/SKILL.md`。skills 已随仓库保存，无需依赖个人电脑安装。
+6. 新电脑装配见 [workspace.md](workspace.md)；默认按同父目录克隆，但不要求个人盘符一致。
 
-- 用户提出后续面向 Web、服务调用，同时提供 HTTP、gRPC 与 SDK；本轮仅分析，不实施认证改造。代码现状、差异和建议见 [external-auth-assessment.md](external-auth-assessment.md)。
-- 用户进一步确认：业务浏览器直接调用权限中心业务接口，业务用户已有统一登录中心/SSO。后续以复用 SSO 的业务用户认证为目标，不再将接入方式列为待确认，也不默认新建业务用户密码登录。
-- HTTP 已有本地管理员 JWT 与系统固定 Token 身份探测。gRPC 只有公开健康接口，尚未复用系统身份用例，JWT 主体策略也与 HTTP 不同；新增业务 RPC 前需要统一。
-- 应用入口当前为明文 HTTP/gRPC；SpiceDB TLS 配置仅用于出站。实际对外 TLS 入口未验证，不将开发监听或依赖配置视为生产接入完成。
+## 2. 已完成的后端与代码定位
 
-| 待确认范围 | 事实与影响 | 当前处理与所需信息 |
+| 内容 | 当前实现与入口 |
+|---|---|
+| 架构/基础设施 | Go 1.26、DDD、Gin、grpc-go、GORM/PostgreSQL、Redis、zap；`internal/bootstrap/` 装配 |
+| 本地登录与身份 | bcrypt、RS256、exp/iss/aud、实时用户状态；`pkg/auth/`、`internal/application/management/service.go` |
+| 首个管理员与密钥工具 | `cmd/bootstrap-admin/` 仅空用户库初始化；`cmd/generate-keys/` 拒绝覆盖已有文件 |
+| 租户、后台用户、租户管理员 | 创建/编辑/查询/停用恢复、成员分配、平台角色、最后超管保护；`internal/domain/management/`、`internal/application/management/` |
+| 系统、账号、固定 Token | 每系统唯一租户和账号；单有效密钥、显式签发/吊销；`system.go`、`pkg/credential/` |
+| Token 签发资格 | 实时资格查询与写事务复用规则；`credential_check.go`；超管无租户管理员关联不能签发 |
+| 事务、查询与审计 | 统一事务、版本控制、范围分页与审计；`internal/infrastructure/persistence/`；成功变更和审计同事务 |
+| HTTP | 31 条路由契约；`internal/interfaces/http/`、[OpenAPI](../api/openapi.yaml)；系统身份探测为 `GET /api/v1/systemAccess/me` |
+| gRPC | 仅注册标准 health 与自定义 Healthy；`internal/interfaces/grpc/server.go`；非公开方法拦截器当前是 JWT 路径 |
+| SpiceDB 客户端 | 官方 authzed-go、连接复用、TLS、取消/超时、启动健康检查；`internal/infrastructure/spicedb/client.go` |
+
+系统固定 Token 的可信身份用例已在 `management.Service.AuthenticateSystem` 实现，业务 RPC 应复用它。当前 gRPC 还未接入此用例，不能直接将现有 JWT 拦截器当作系统调用认证。
+
+当前七张批准表为 tenant_info、system_info、user_info、tenant_member_info、system_account_info、system_credential_info、authorization_audit_log。唯一 DDL、数据库与用户 `permission_center` 的初始化授权均在数据库文档；服务不 AutoMigrate。
+
+## 3. 已完成的前端与代码定位
+
+前端路由均来自 `src/router/index.ts`，管理 API 在 `src/api/management.ts`，DTO 在 `src/types/management.ts`。
+
+| 路径 | 内容 | 入口 |
 |---|---|---|
-| SSO 协议与业务令牌契约 | 已确认浏览器直连与外部已有 SSO；尚未核对身份源是否为 OAuth2/OIDC、SAML 或自定义协议，以及是否能为权限中心 API 签发 access token。当前本地管理员 JWT 不能直接代替业务用户认证。 | 核对登录中心名称/协议文档、API audience/scope、JWT/JWKS 或 introspection、稳定主体规则、客户端到系统映射和停用/退出失效要求；据此确定直接验证或受控委托。已确认的浏览器直连和已有 SSO 无需重复询问。 |
-| SDK 与 RPC 交付范围 | 已有 OpenAPI、proto/生成代码，尚无可分发 SDK 或系统业务 RPC。语言、流式调用和所需业务操作尚未确定。 | 可以先统一协议认证、身份探测、错误和超时；SDK 首批语言、是否需要流式 RPC、是否开放授权变更需后续确认，不能由有效系统凭据推导所有操作已获许可。 |
-| 外部传输与运维边界 | 尚未核对外部域名、TLS 终止位置、网关到服务的保护方式和业务调用配额。 | 待确认 Ingress/网关终止还是应用直接提供 TLS；部署前确定证书、代理范围、限流和 SDK 的连接参数。本轮不改集群、不获取或记录实际秘密。 |
+| `/login` | 真实用户名密码登录、内联失败、loading/防重复 | `src/views/LoginView.vue` |
+| `/workspace` | 身份概览、刷新身份、管理导航 | `src/views/WorkspaceView.vue` |
+| `/workspace/tenants` | 租户及管理员关联、远程用户名搜索、状态操作 | `src/views/TenantsView.vue` |
+| `/workspace/users` | 后台用户、角色和状态；平台超管路由保护 | `src/views/UsersView.vue` |
+| `/workspace/systems` | 系统/账号、Token 签发资格/创建/吊销 | `src/views/SystemsView.vue` |
+| `/workspace/audits` | 审计筛选、分页与详情 | `src/views/AuditsView.vue` |
 
-## 管理页面后端增量（2026-10-30）
+公共能力复用 `src/api/http.ts`、`src/stores/auth.ts`、`src/composables/use-paged-list.ts`、`src/components/common/` 和 `src/assets/styles/`。只有统一请求层提示普通错误，页面不重复弹错。分页入参 pageNum/pageSize，响应 total/list。
 
-- 本地补充实际管理租户分页、系统 Token 签发资格查询，以及用户/成员按登录账号搜索。接口共 31 条；完整接入约定见 [management-pages.md](management-pages.md)。
-- 数据库仍为已批准七表，未新增表、字段或执行业务库 DDL；核心 SpiceDB 授权、改密与会话机制不在本次范围。
-- 后端增量最初核对独立前端 `6bb7a41` 的登录 API/类型，现有登录响应保持兼容。当前前端工作树已实现管理页面并接入实际租户范围、Token 签发资格和登录账号筛选。
-- Go 全量测试、vet、构建及 OpenAPI 路由/引用检查通过；隔离 PostgreSQL 18.4 中，新增管理页面查询及原有 HTTP/事务/并发回归全部通过，随机 schema 已清理。
-- 本段描述的后端增量现已提交并合入 `main`；仍不代表已经部署。
+前后端已适配的关键增量：
 
-## 本次交付基线
+- 非平台超管在系统页使用 `/auth/tenant/list` 获取实际有效管理员关联；普通租户列表由后端过滤管理范围，前端不从 `platformRole=none` 推断身份。
+- `/system/credential/checkCreate` 返回当前签发资格/原因；页面展示阻止原因，创建事务仍复查，资格查询不构成授权凭据。
+- 后台用户支持 username 筛选；分配租户管理员使用远程用户名搜索，不以固定第一页用户代替完整搜索。
+- Token 明文只在创建结果的一次性对话框显示，关闭后清空；管理员 JWT、系统 Token 和 SpiceDB 服务凭据用途不同。
+- Apple 设计规范、固定版本 skills、许可证及相对路径工作区均已提交。未重新初始化或替换现有管理页面。
 
-- 后端代码已提交并推送：[94a3b3b](https://github.com/Vincentenxy/olixops-permission-center/commit/94a3b3b6ed1d98e9fd136e548773c51cfb773e7b)。包含登录、租户、管理员、系统、固定 Token 与审计的 HTTP 接口。
-- 前端历史基线提交为 [434b1a7](https://github.com/Vincentenxy/olixops-permission-center-web/commit/434b1a790df752066e09c1f01de199190c1a5ac8)；其后已补齐租户、管理员、系统、固定 Token 和审计管理页面。设计 skills 继续随仓库保存。
-- 后端全量 Go 测试（含真实 PostgreSQL 集成）、vet 和 Linux 构建通过；隔离 PostgreSQL 的 HTTP 联调完成 137 项断言。前端 `pnpm check` 通过，含 41 项测试、lint、类型检查和生产构建；真实浏览器登录流程及原桌面、窄屏检查通过，新增管理流待连接实际后端验收。
-- 上述是代码交付基线，后续文档提交会继续更新 Git 历史。目前没有已知的本地检查失败项；远程 CI 与部署状态见下表。
+## 4. SpiceDB 模型完成了什么
 
-## 已确认，无需重复询问
+模型唯一源码为 `authorization/schema.zed`。Schema 定义 tenant/system/subject/role/resource/access；access 表示某资源的某动作，统一计算 `allowed = grantee + inherits->allowed`。
 
-- 七表设计已获 Owner 确认，唯一 SQL 维护在 [database.md](database.md)。数据库设计获准开发不代表已在业务库执行。
-- 每个系统唯一归属一个租户；后台用户可管理多个租户。后台管理员、系统调用账号和业务系统用户是不同身份。
-- 外部业务浏览器需要直接调用权限中心业务接口，业务用户复用已有统一登录中心/SSO；具体协议与接入契约仍需核对，详见上方对外接入评估。
-- 系统 Token 使用固定密钥，每账号最多一把有效密钥，本期不做轮换或自动到期。只有所属租户的有效管理员能够创建，平台超管不能仅凭超管角色绕过。
-- 第一部分后端与前端管理能力已实现；业务 gRPC 和 SpiceDB 授权业务见 [阶段计划](phase-one-plan.md)。
+- grantee 支持直接主体或 role#member，任一来源允许即可；角色成员变更无需逐资源重写授权。
+- inherits 表达父目录或类型范围的同动作继承；新资源必须显式建立继承边，系统归属本身不授予业务权限。
+- read/update 是不同 access。未来应用层按系统、外部主体/资源 ID 和动作映射内部 UUID，不能直接采用客户端传入的 SpiceDB ID。
+- 撤销单条来源后，其他直接/角色/范围/父目录来源仍可能允许；首版没有 deny 优先级。
+- `authorization/tests/` 保存 7 组独立状态快照，`authorization/validate.ps1` 执行官方 zed 验证并在警告或失败时返回非零状态。
+- 2026-11-05 本机 zed v1.2.1 编译与 37 条断言全部通过；其中 4 条属于非法写入风险复现。临时移除继承公式会失败，恢复后从仓库外运行仍通过。
 
-## 待核对的环境与验证结果
+**关键限制：system/resource 关系没有参与 allowed 公式，不能自动隔离非法关系。** 测试 07 故意写入跨系统直接授权、跨租户角色、跨系统继承、跨动作继承，预期 allowed=true，以证明当前模型不能防住这些错误写入。该测试是风险事实，不是产品允许行为。后续必须封闭写入口并在应用层拒绝这些输入，加入对应的拒绝测试。
 
-| 事项 | 当前事实与影响 | 后续处理 |
+离线快照只验证给定关系下的权限计算；尚未验证在线 WriteRelationships/DELETE、强一致性与撤权时序、并发恢复、循环/深度约束、Bulk/Lookup 或性能。未将本 Schema 写入现有集群，用户此前导入的 Playground Schema 仍需单独核对。
+
+## 5. 尚未实现与建议接手顺序
+
+| 顺序 | 工作 | 完成标准/前置条件 |
 |---|---|---|
-| 业务 PostgreSQL 的实际结构 | 本次仅使用隔离测试库，未检查或修改业务库。无法确认用户是否已执行旧版 SQL；旧版表可能缺少本地登录字段或仍保留旧凭据字段/索引。 | 接入实际环境时先核对现有结构与 [database.md](database.md)，再确定初始化或增量升级。新库按文档建库、授权、建表；已有库不能把初始化 SQL 当成升级脚本直接重跑。 |
-| 实际管理员与 JWT 密钥 | 本次仅建立虚构测试身份并使用临时测试密钥，未替用户配置实际登录账号或持久 RSA 密钥。业务库和认证配置未准备好时不能完成实际环境登录。 | 按 [README](../README.md) 生成并保管持久密钥、配置 issuer/audience；确认用户表为空后，用离线命令初始化首个超管。已有用户库先核对现状，不清库重建。凭据不记录在本清单。 |
-| GitHub Actions 结果 | 两个仓库均已推送并包含 CI；最后查询 GitHub API 时遇到访问限流，远程运行结果尚未确认。不能将本地通过写成远程 CI 通过。 | 查看 [后端 Actions](https://github.com/Vincentenxy/olixops-permission-center/actions) 和 [前端 Actions](https://github.com/Vincentenxy/olixops-permission-center-web/actions)，记录对应提交的结果；若失败，按实际日志修复。 |
-| 容器及 Kubernetes 部署 | 首次交付 Docker 不可用；本轮 Docker 已可用并仅运行隔离 PostgreSQL 测试容器，仍未构建应用镜像或部署集群。应用实际域名、命名空间、后端 Service、代理地址范围尚未核对；现有 SpiceDB 可访问不等于权限中心已部署。 | 部署时核对前端 `API_UPSTREAM`、后端 `HTTP_TRUSTED_PROXIES` 和实际 HTTPS 入口，再验证登录、刷新、退出及代理错误。现有 Dockerfile/代理模板和本地构建不能替代部署验证。 |
+| 1 | 第二部分 SQL 与写入状态机 | 将 9 张候选表细化到字段/索引/生命周期/唯一映射/任务顺序，写入 database.md 并交 Owner 审核 |
+| 2 | 正式接口与调用能力 | 类型化 subject/resource/action；明确系统 Token 登记能力和管理员授权入口；替换占位 proto 并同步 OpenAPI |
+| 3 | 应用层安全规则 | 同系统/同动作、不可换绑、有效状态、管理员资格、单父链/环/深度与并发校验；拒绝测试覆盖 07 的风险 |
+| 4 | 可靠写入基础 | PostgreSQL 事务记录幂等任务、每系统顺序执行、TOUCH/DELETE、未知结果恢复、系统门禁、ZedToken 水位和审计 |
+| 5 | 最小服务端闭环 | 主体/资源类型/动作/资源登记，管理员 grant/revoke，operation detail，系统 Token check/checkBulk；HTTP/gRPC 共用应用用例 |
+| 6 | 真实 SpiceDB 集成 | 隔离服务验证在线授权/撤权、fully_consistent、另一客户端查询、依赖失败、重试及服务重启 |
+| 7 | 角色、类型范围、目录继承 | 管理成员及来源，多来源撤权语义，与模型保持一致 |
+| 8 | 前端授权页面 | 主体、资源类型/动作、角色、资源授权、操作状态/失败恢复、权限测试；区分待生效、无权和服务故障 |
+| 9 | 后续能力 | 目标规模压测后评审 LookupResources/精确列表、SSO/checkSelf、SDK 和实际系统接入 |
 
-## 后续功能与需要补充的设计
+表设计先审批是 [AGENTS.md](../AGENTS.md) 的硬性要求。9 张表目前仅在核心方案中列明职责，**没有完整 SQL 或第二部分表审批，不得先写关联 model/repository/handler/migration**。本轮交接和离线验证不改变此审批状态。
 
-以下是后续范围，不是本次交付中已知的代码故障，也不据此自动扩大开发范围。
+`api/proto/permission/v1/permission.proto` 的 user_id/resource/action 和生成代码只是占位；未注册 PermissionCenterService，现有 HTTP 也没有 grant/revoke/check。不把缺失服务做成前端假成功。
 
-1. **真实环境管理流验收**：新增管理页面已接入现有 HTTP 契约并通过自动化检查，仍需在实际 PostgreSQL、后端和代理环境验证平台超管与租户管理员的完整操作、桌面/窄屏布局和浏览器控制台。
-2. **系统业务 gRPC**：目前提供标准 health 与自定义 `Healthy`。系统身份探测已通过 HTTP 提供；业务 RPC 仍需确定契约并接入同一认证和应用用例。`CheckPermission` 目前仅有 proto/生成代码，服务未注册。
-3. **SpiceDB 授权业务**：已有可选 SDK 连接基础设施，尚未接入实际授权模型或验证集群中的业务关系。下一阶段需要核对用户导入的 Playground Schema，明确系统隔离、跨系统通用动作命名、主体/资源标识、关系写入范围与撤权一致性，再确定接口、前端页面和测试。此次未上传或覆盖已有 Schema，也未把示例 Schema 硬编码为正式能力。
+建议的最小验收：
 
-管理员 JWT 目前有有限有效期，前端退出仅清理当前标签页会话；无 refresh token、跨设备撤销和公开找回密码。这些是已记录的一期能力边界，后续按具体需求演进。
+1. 系统 A 登记 user-a 和 folder-1/read；所属租户的有效管理员授权后，HTTP 与 gRPC 均允许。
+2. 撤销唯一授权来源，操作确认生效后，另一客户端新发起的鉴权均返回 allowed=false。
+3. 系统 B 即使使用相同外部用户名和资源 ID 也不共享权限；非法绑定在写入前拒绝。
+4. 无管理员关联的超管不能绕过签发规则；系统 Token 未经委托不能自助 grant/revoke。
+5. SpiceDB/目录/队列异常时拒绝执行业务并返回明确协议错误，不将故障伪装为成功的 allowed=false。
+6. 变更只有关系、目录状态及成功审计确认完成才报告生效；门禁和重试覆盖写入结果未知的情况。
 
-## 接手时从哪里开始
+## 6. 已确认的边界
 
-先阅读两个仓库各自的 `AGENTS.md`、README 和本清单；新电脑环境装配见 [workspace.md](workspace.md)。检查当前 Git 状态，以上提交仅用于定位本次交付，不要求回退到该版本。
+- 本项目是独立权限中心，Env Vault 是接入方与通用规范参考，不复制其主密钥或 Secret 业务。
+- 一个租户多个系统、系统唯一归属租户；后台用户与租户多对多。后台管理员、系统调用账号、接入方业务主体是独立身份。
+- 第一期七表已获 Owner 确认；不等于实际业务库已执行 SQL。禁止外键和启动自动建表；结构变更继续先审表。
+- 系统 Token 固定、每账号最多一把有效密钥、不轮换/自动到期；只能由所属租户的有效管理员创建，超管身份不能绕过。
+- 权限中心集中保存业务授权并提供判断，接入方后端负责在真实业务执行前强制鉴权。
+- 外部业务浏览器直连权限中心是已提出的接入目标，业务用户已有统一登录中心/SSO；不能重新把“是否已有 SSO”当成待确认项。
+- 自用模板允许系统 member 读取其加入系统的全部数据；这是自用策略，不硬编码为所有外部系统默认授权。此模板尚未实现。
+- DDD 依赖边界、HTTP/gRPC 共享用例、规则单一实现、统一响应/分页/错误提示和日志规范继续有效。
 
-本次临时 PostgreSQL、后端及前端联调进程已停止，不依赖临时进程长期提供预览。后续按 README 启动自己的开发环境。处理待确认项后在本文件记录结论和验证依据，不记录密码、Token、私钥或含凭据的连接字符串。
+## 7. 待确认与环境核对
+
+| 事项 | 当前事实与影响 | 接手处理 |
+|---|---|---|
+| 模型与规模 | 通用 access 已完成离线语义验证，性能成本尚未验证，方案仍为设计基线 | 补首个系统的资源量、动作数、继承深度、QPS、延迟及列表规模；压测后评审容量和列表方案 |
+| 授权/登记委托 | 建议管理员 grant/revoke、系统 Token 默认不自助授权；系统登记能力范围尚待契约定稿 | 明确每种调用身份可登记/变更哪些对象，不从认证成功推导无限授权 |
+| 第二部分数据面 | PostgreSQL 与 SpiceDB 无共同事务；9 张候选表未完成 SQL 审批 | 明确 relation_info 是管理声明/来源而非备用权限计算引擎；任务/水位/门禁及审计恢复规则与 SQL 一起评审 |
+| SSO 具体契约 | 已有外部身份源，但协议、issuer/audience、JWKS/introspection、主体和客户端映射未核对 | 取得契约后实现业务用户认证/checkSelf；不以后台 JWT 代替 SSO，不新建重复业务密码库 |
+| SDK/RPC 范围 | 无可分发 SDK 或正式授权 RPC | 明确首批语言、是否流式、所需调用能力，先完成服务端共享用例 |
+| 业务库与管理员 | 只记录隔离测试结果，未核对实际库、账号和密钥 | 对照 database.md 核对现有结构；新库手工初始化，旧库做增量方案；已有用户库不清空重建超管 |
+| 部署/TLS | 应用入口代码为 HTTP/gRPC，出站 SpiceDB TLS 不等于入站 HTTPS；未确认应用生产部署 | 核对域名、Service、网关/TLS 终止、配额、可信代理和 SDK 参数；未经明确部署要求不改集群 |
+| 远程 CI | 两仓库有工作流；没有本轮远程结果证据，历史 GitHub API 曾限流 | 分别查看 [后端 Actions](https://github.com/Vincentenxy/olixops-permission-center/actions) 与 [前端 Actions](https://github.com/Vincentenxy/olixops-permission-center-web/actions)；zed 尚未接入 CI |
+
+## 8. 验证证据与本轮交付
+
+| 时间/范围 | 实际记录 | 不能据此推断 |
+|---|---|---|
+| 历史管理后端 | 隔离 PostgreSQL 17.6 的七表 DDL及 137 项 HTTP 断言；后续隔离 PostgreSQL 18.4 的管理页面增量/并发/事务回归通过；Go test/vet/build、OpenAPI 检查通过 | 当前业务库结构、实际部署或远程 CI 已通过 |
+| 管理前端交付 | pnpm check：6 文件、41 测试，lint/类型/构建通过；历史 audit 有通过记录 | 本轮重新审计依赖或新增管理页真实业务流已验收 |
+| 历史真实浏览器 | 登录失败/成功、刷新、退出、路由保护及原登录/账号页桌面/390px 窄屏通过 | 租户/用户/系统/Token/审计全部管理流或生产环境已验收 |
+| 2026-11-05 模型 | zed v1.2.1，7 组快照/37 条断言通过，故障探测与仓库外执行通过 | 真实 SpiceDB 服务写入、撤权一致性、应用防越权或性能已通过 |
+| 2026-11-06 交接 | 本轮修改 README、模型说明、统一交接及旧阶段文字；57 个本地文档链接和 17 个关键源码路径存在性检查通过，两个仓库 git diff --check 通过 | 本轮重新执行全量 Go/前端测试、真实数据库或浏览器联调 |
+
+本轮只整理文档，不改变业务 API、数据库或 Schema。历史临时预览和 /tmp 路径不构成交付依赖：本轮没有启动、停止或确认那些旧进程，不保证旧地址、临时账号或运行状态有效。新电脑按两个 README 自行准备环境。Docker 引擎在 2026-11-05 模型验证时未运行，不以历史某次可用描述当前状态。
+
+新管理页面真实验收还需覆盖平台超管、租户管理员、无有效成员用户、Token 单次展示/吊销/停用、资格变化、桌面/窄屏、控制台和重复提示；当前没有完整结果。
+
+## 9. 验证命令与交付规则
+
+后端根目录（变更对应代码时执行）：
+
+```powershell
+go vet ./...
+go test ./...
+go build ./...
+./authorization/validate.ps1
+# 未加入 PATH 时：
+./authorization/validate.ps1 -ZedPath /path/to/zed
+```
+
+真实 PostgreSQL 回归为 `go test -count=1 -v ./internal/integration`，必须使用 TEST_DATABASE_DSN 指向名称以 _test 结尾的隔离库；测试仅清理自己创建的随机 schema。未设置时是跳过，不能写成真实数据库验证通过。模型验证无需连接数据库或集群。
+
+前端根目录：
+
+```sh
+pnpm install --frozen-lockfile
+pnpm check
+git diff --check
+```
+
+Node/pnpm 跟随前端 manifest；当前要求 Node >=20.9、pnpm 10.11.1，CI 使用 Node 22。不因文档整理反复运行所有业务测试。修改协议/代码后必须执行受影响验证并更新本清单；推送时分别提交两个仓库。
+
+本地 config/config.yaml、.env、PEM/KEY、实际凭据和数据库内容不进 Git；不通过交接记录密码/Token。默认登录仅当前标签页会话，无 refresh token、服务端跨设备 JWT 撤销、公开找回密码；这些是后续范围，不应误认为已实现。

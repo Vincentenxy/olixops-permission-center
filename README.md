@@ -4,9 +4,9 @@
 
 开发前阅读 [AGENTS.md](AGENTS.md)。数据库唯一 SQL 在 [design/database.md](design/database.md)，接口说明在 [design/management-api.md](design/management-api.md)，进度见 [第一部分计划](design/phase-one-plan.md)。
 
-本次交付基线、待核对环境与后续事项统一记录在 [开发交接清单](design/handoff.md)，接手时先看该清单；实际部署状态与本地验证结果分别记录。
+前后端统一交接入口为 [开发交接清单](design/handoff.md)，更新日期为 2026-11-06；记录代码定位、验证证据、未完成事项和下一步验收。接手 Agent 先阅读两个仓库的规范，再按该清单继续，不根据规划或 proto 占位推断功能已实现。
 
-通用业务授权的目标方案见 [核心授权设计草案](design/core-authorization.md)，领域术语见 [CONTEXT.md](CONTEXT.md)。草案覆盖外部系统接入、自用策略及 SpiceDB 模型取舍，尚未实现，不改变下方当前能力清单。
+通用业务授权的目标方案见 [核心授权设计草案](design/core-authorization.md)，领域术语见 [CONTEXT.md](CONTEXT.md)。可执行 Schema 与离线测试已经落地，Go 授权用例、正式业务接口与前端授权页面尚未实现；状态以下方清单为准。
 
 ## 当前能力
 
@@ -27,6 +27,23 @@
 
 `permission.v1.PermissionCenterService/CheckPermission` 当前只有 proto/生成代码，未注册服务。没有用户注册、公开找回密码、refresh token、跨设备会话撤销或自动建表；这些不能从目录或文档占位推断为已实现。
 
+## 开发进度与下一步
+
+截至 2026-11-06，管理基础的后端与前端代码已完成，SpiceDB 核心部分完成设计和离线模型验证。未确认当前业务环境的建表、完整管理页面联调、远程 CI 或 Kubernetes 部署结果。
+
+| 工作 | 已完成 | 尚未完成 |
+|---|---|---|
+| 管理基础 | 七表设计、登录、租户/管理员/系统/固定 Token/审计 HTTP 用例及前端页面 | 新管理页面在实际环境中的完整浏览器验收 |
+| 模型设计 | tenant/system/subject/role/resource/access；直接、角色、父目录、类型范围授权 | 生产 Schema 兼容检查与受控发布 |
+| 模型验证 | zed v1.2.1 编译、7 组独立快照、37 条断言、失败退出验证 | 在线 Write/Delete、跨客户端撤权一致性、Bulk/Lookup、性能 |
+| 授权目录 | 9 张候选表的职责清单 | 完整 SQL、状态机、索引及 Owner 审批；相关 Go 实现 |
+| 授权服务 | Authzed SDK 连接和健康探测 | 封闭关系写入口、grant/revoke/check/checkBulk、可靠任务、重试、系统门禁和水位 |
+| gRPC | 标准 health、自定义 Healthy、拦截器 | 系统 Token 认证、共享应用用例、正式授权 RPC |
+| 授权前端 | 现有管理工作台可继续扩展 | 主体/资源类型/动作/角色/资源授权、任务状态和权限测试页面 |
+| 外部接入 | SSO 与 SDK 的设计评估 | 实际 SSO 契约、checkSelf、SDK、接入方业务执行前校验 |
+
+下一步先完善第二部分的表结构、写入状态机与接口契约，SQL 写入 `design/database.md` 并由 Owner 审核后再实现关联代码。最小闭环为“系统 A 登记主体与目录 → 有效租户管理员授予 read → HTTP/gRPC 判断允许 → 撤权任务生效 → 另一客户端判断拒绝”。后续再扩展角色、类型范围/目录继承及页面。详细顺序和验收标准见 [交接清单](design/handoff.md)。
+
 ## 架构与目录
 
 依赖方向：HTTP/gRPC → Application → Domain；Infrastructure 实现存储及外部服务端口，由 Bootstrap 装配。管理用例共用授权范围、事务、版本与审计规则，协议层不直连数据库或 SpiceDB。
@@ -41,10 +58,17 @@ olixops-permission-center/
 ├── config/config.example.yaml       # 安全配置模板
 ├── api/openapi.yaml                 # 31 条 HTTP 路由的 OpenAPI 3 契约
 ├── api/proto/ / api/gen/             # proto 和生成代码
+├── authorization/
+│   ├── schema.zed                   # 通用 access 模型唯一源码
+│   ├── tests/                       # 7 组独立状态快照
+│   ├── validate.ps1                 # 本地 zed 验证入口
+│   └── README.md                    # 模型原理、运行方法与验证边界
 ├── design/
 │   ├── database.md                  # 七表 DDL、建库/授权
 │   ├── management-api.md            # 管理 API 和范围约定
 │   ├── phase-one-plan.md            # 进度与后续范围
+│   ├── core-authorization.md        # 第二部分方案，含 9 张候选表职责
+│   ├── handoff.md                   # 前后端统一交接清单
 │   └── workspace.md                 # 跨电脑/跨仓库开发
 ├── internal/
 │   ├── bootstrap/                   # 依赖装配、服务生命周期
@@ -183,6 +207,16 @@ SpiceDB SDK 为官方 [authzed-go](https://github.com/authzed/authzed-go)，版�
 
 启用后的启动健康检查只验证可达和健康，不证明 PSK 有效、Schema 存在或业务权限正确；进程不会自动导入 Playground 内容或 WriteSchema。第二部分再实现系统隔离的授权模型、关系变更、权限查询及跨 PostgreSQL/SpiceDB 的一致性方案。
 
+### 权限模型原理
+
+模型将一个资源拆成多个资源动作对象，例如 `folder-1/read` 与 `folder-1/update` 分别对应不同的 access。应用层未来负责将 `(systemId, resourceType, externalId, action)` 映射到内部 UUID；subject 同样按系统、主体类型及外部 ID 映射。新增业务动作通常无需修改 Schema，但会增加 access 对象与目录映射。
+
+唯一判断公式是 `allowed = grantee + inherits->allowed`：grantee 可直接引用主体或 `role#member` 成员集合；`+` 表示任一来源允许即可；`inherits->allowed` 沿继承关系计算父级权限。父目录授权和某类资源全量授权都通过显式继承边表达，新资源必须登记并补齐继承边。撤销一条来源不保证失去全部权限，其他直接、角色或继承来源仍可能允许。
+
+**当前 Schema 中的 system/resource 关系只表达归属，不参与 allowed 公式。** 离线测试 07 故意写入非法跨系统、跨租户角色和跨动作继承，并断言其会允许，用来记录风险；它不代表这些行为可以开放。后续应用层必须校验单一归属、同系统/同动作、管理员资格、对象状态以及父链无环和深度，接入方不能持有 SpiceDB 原始写入凭据。
+
+逐条关系示例、语法、测试文件定位和已验证范围见 [权限模型 README](authorization/README.md)。37 条断言中包含 4 条风险复现；快照通过不能等同于在线撤权、应用隔离或生产性能通过。
+
 ## 构建与验证
 
 SpiceDB 模型验证独立于业务库运行：安装 zed v1.2.1 后执行 `./authorization/validate.ps1`，或通过 `-ZedPath` 指定安装路径。Schema、测试快照、验证结果与已知隔离边界见 [authorization/README.md](authorization/README.md)。该命令不导入数据到现有服务。
@@ -203,7 +237,9 @@ git diff --check
 
 GitHub Actions 已配置普通 Go 检查和 PostgreSQL 17 服务上的独立集成测试；工作流配置存在不代表远程运行已经通过，实际结果以对应提交的 Actions 为准。
 
-本次在隔离原生 PostgreSQL 17.6 中执行七表 SQL，并完成 137 项 HTTP 流程断言：登录、跨租户、签发资格、并发单密钥、停用/恢复/吊销、并发版本与审计回滚。还验证可信代理限流、失败审计操作者、密钥生成防覆盖、JWT 算法/issuer/audience 和密码规则。前端通过真实浏览器登录/刷新/退出及桌面/390px 窄屏检查。完整 Go 测试、vet、Linux amd64 无 CGO 构建与 OpenAPI 路由/引用验证通过。
+历史验证：在隔离原生 PostgreSQL 17.6 中执行七表 SQL，并完成 137 项 HTTP 流程断言，覆盖登录、跨租户、签发资格、并发单密钥、停用/恢复/吊销、并发版本与审计回滚；另验证可信代理限流、失败审计操作者、密钥生成防覆盖、JWT 算法/issuer/audience 和密码规则。登录/账号页面通过真实浏览器登录、刷新、退出及桌面/390px 窄屏检查。新增管理页面通过自动化检查，完整浏览器业务流仍待验证。后续曾完成全量 Go test/vet、Linux amd64 无 CGO 构建及 OpenAPI 路由/引用验证，见 [交接证据](design/handoff.md)。
+
+2026-11-05 独立 Schema 编译和 37 条权限断言通过；移除继承公式的故障探测按预期失败，恢复后从仓库外执行仍通过。2026-11-06 为交接文档整理，历史测试结果不视为本轮重新执行；本轮实际检查结果单独记录在交接清单。当前 CI 只配置 Go/PostgreSQL 检查，尚未自动运行 zed 模型验证。
 
 ```powershell
 docker build -t olixops-permission-center:local .
